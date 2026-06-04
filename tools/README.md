@@ -17,10 +17,10 @@ This produces:
 ### Usage
 
 ```bash
-./build/lfw_pcap_test <file.pcap> [rules_file]
+./build/lfw_pcap_test <file.pcap|file.pcapng> [rules_file]
 ```
 
-- **`<file.pcap>`**: required; the pcap file to replay.
+- **`<file.pcap|file.pcapng>`**: required; the packet capture file to replay.
 - **`[rules_file]`**: optional path to an lfw rules file.
   - If omitted, defaults to `/etc/lfw/lfw.rules` (same as the main daemon).
 
@@ -28,10 +28,10 @@ Examples:
 
 ```bash
 # Use system rules (/etc/lfw/lfw.rules)
-./build/lfw_pcap_test samples/traffic.pcap
+./build/lfw_pcap_test wireshark_packet_capture.pcapng
 
 # Use a custom rules file in the repo
-./build/lfw_pcap_test samples/traffic.pcap ./lfw.rules
+./build/lfw_pcap_test wireshark_packet_capture.pcapng ./lfw.rules
 ```
 
 ### Behaviour

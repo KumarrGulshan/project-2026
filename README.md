@@ -49,16 +49,37 @@ From the project root:
 make
 ```
 
-This will:
+This compiles:
+- The main firewall daemon: `build/lfw`
+- The eBPF kernel program: `build/lfw_bpf.o`
 
-- Build the main firewall daemon: `build/lfw`
-- (Optionally) you can build the pcap test tool with:
+To install the daemon, configuration rules, and systemd service globally on the system:
 
 ```bash
-make pcap-test
+sudo make install
 ```
 
-To clean:
+### Running Unit Tests
+
+The codebase includes a suite of unit tests verifying raw packet parsing, CIDR subnet matching, connection tracking (including thread-safety and concurrency), and stateful behavior:
+
+```bash
+make test
+```
+
+### Running Offline PCAP Tests
+
+You can run the rule engine offline against a pcap or pcapng packet capture file to verify verdicts without attaching to live interfaces:
+
+```bash
+# Build the pcap test utility
+make pcap-test
+
+# Run the tester with the sample pcapng file in the repo root
+./build/lfw_pcap_test wireshark_packet_capture.pcapng lfw.rules
+```
+
+To clean build artifacts:
 
 ```bash
 make clean
@@ -169,49 +190,48 @@ The daemon supports operational control signals:
   sudo kill -USR1 $(pgrep lfw)
   ```
 
-### 5.4 Systemd Integration
+## 5.4 Systemd Integration
 
-For enterprise integration, you can install the provided systemd template service unit to manage the firewall on specific network interfaces:
+For integration with the host system, you can use the systemd template service unit (installed globally via `sudo make install`) to manage the firewall on a specific network interface (e.g., `eth0`):
 
-1. Copy the template unit file:
-   ```bash
-   sudo cp lfw@.service /etc/systemd/system/lfw@.service
-   ```
-2. Enable and start the service for a specific network interface (e.g., `eth0`):
-   ```bash
-   sudo systemctl daemon-reload
-   sudo systemctl enable lfw@eth0
-   sudo systemctl start lfw@eth0
-   ```
+```bash
+sudo systemctl enable lfw@eth0 --now
+```
+
+This starts the daemon and configures it to run automatically on boot. To check status:
+
+```bash
+sudo systemctl status lfw@eth0
+```
 
 
 ## 6. Internal Architecture
 
 * **eBPF Filter**: Intercepts packets directly in the kernel's TC ingress and egress pipelines, parsing packet headers (L3/L4) and matching them against active rules and connections for sub-microsecond filtering.
-* **State/Conntrack Map**: A BPF Hash Map (`conntrack_map`) with up to 4096 entries to track active TCP and UDP connections.
-* **Rules Map**: A BPF Array Map (`rules_map`) populated by the userspace daemon containing compiled rules.
+* **State/Conntrack Map**: A BPF Hash Map (`conntrack_map`) with up to 4096 entries tracking active UDP and stateful TCP connections (SYN-SENT, SYN-RECV, ESTABLISHED, FIN-WAIT). Out-of-state TCP packets (e.g. non-SYN packets arriving before connection establishment) are dropped.
+* **Rules Map**: A BPF Array Map (`rules_details_map`) populated by the userspace daemon containing up to 256 compiled rules.
 * **Config Map**: A BPF Array Map (`config_map`) storing runtime configuration parameters (e.g., default action and rule count).
-* **Background Housekeeper**: A userspace thread that periodically sweeps the `conntrack_map` in the kernel and deletes expired connections.
+* **Background Housekeeper**: A userspace thread that periodically sweeps the `conntrack_map` in the kernel and deletes expired connections using state-specific timeouts (e.g. shorter timeouts for unfinished TCP handshakes).
 * **Config Loader**: Parses text-based rules files in userspace and synchronizes compiled rule structures and policies to the BPF maps.
 
 
 ## 7. Quick start (TL;DR)
 
 ```bash
-# 1) Install dependencies (Debian/Ubuntu/Kali)
-sudo apt install build-essential clang llvm libbpf-dev libpcap-dev
+# 1) Install dependencies (Debian/Ubuntu)
+sudo apt install -y build-essential clang llvm libbpf-dev libpcap-dev
 
-# 2) Build
-cd /path/to/lfw
+# 2) Clone the repo & navigate to the folder
+git clone https://github.com/saurabh-857/lfw.git
+cd lfw
+
+# 3) Build & Install system-wide
 make
+sudo make install
 
-# 3) Install rules
-sudo mkdir -p /etc/lfw
-sudo cp lfw.rules /etc/lfw/lfw.rules
-
-# 4) Run the firewall daemon on a chosen interface (e.g. eth0)
-sudo build/lfw eth0
+# 4) Enable and start the firewall on your network interface (e.g. wlan0 or eth0)
+sudo systemctl enable lfw@wlan0 --now
 ```
 
-After this, incoming and outgoing packets on the specified interface will be filtered according to `lfw.rules`.
+After this, incoming and outgoing packets on the specified interface will be filtered according to `/etc/lfw/lfw.rules`.
 
