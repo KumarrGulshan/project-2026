@@ -10,6 +10,16 @@ lfw_status_t lfw_bpf_init(const char *ifname, const char *bpf_obj_path);
 // Synchronize user-space rules to BPF maps
 lfw_status_t lfw_bpf_sync_rules(const lfw_rule_t *rules, lfw_u32 rule_count, lfw_action_t default_action);
 
+// Synchronize user-space rules to specific BPF map FDs
+lfw_status_t lfw_bpf_sync_rules_to_fd(const lfw_rule_t *rules, lfw_u32 rule_count, lfw_action_t default_action,
+                                      int rules_fd, int config_fd, int src_trie_fd, int dst_trie_fd,
+                                      int src_trie6_fd, int dst_trie6_fd);
+
+// Reload rules by loading a new BPF instance and atomically replacing active filters
+lfw_status_t lfw_bpf_reload(const char *ifname, const char *bpf_obj_path,
+                            const lfw_rule_t *new_rules, lfw_u32 new_rule_count,
+                            lfw_action_t new_default_action);
+
 // Detach BPF filters and cleanup resources
 void lfw_bpf_cleanup(void);
 

@@ -322,8 +322,8 @@ int main(int argc, char **argv) {
           g_config_path, &new_default_action, &new_rules, &new_rule_count);
 
       if (reload_st == LFW_OK) {
-        // Sync new rules to BPF
-        if (lfw_bpf_sync_rules(new_rules, new_rule_count, new_default_action) ==
+        // Atomic BPF reload and replacement
+        if (lfw_bpf_reload(ifname, bpf_obj_path, new_rules, new_rule_count, new_default_action) ==
             LFW_OK) {
           lfw_config_free_rules(g_rules);
           g_rules = new_rules;
@@ -332,7 +332,7 @@ int main(int argc, char **argv) {
           lfw_log_info("Rules configuration reloaded successfully");
         } else {
           lfw_config_free_rules(new_rules);
-          lfw_log_error("Failed to sync reloaded rules to BPF");
+          lfw_log_error("Failed to reload and sync new rules to BPF");
         }
       } else {
         lfw_log_error("Failed to reload rules configuration file: %s",

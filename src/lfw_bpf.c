@@ -25,6 +25,7 @@ struct {
     __uint(max_entries, 4096);
     __type(key, struct conntrack_key);
     __type(value, struct conntrack_val);
+    __uint(pinning, LIBBPF_PIN_BY_NAME);
 } conntrack_map SEC(".maps");
 
 struct {
@@ -49,6 +50,7 @@ struct {
     __uint(max_entries, 4096);
     __type(key, struct conntrack_key_v6);
     __type(value, struct conntrack_val);
+    __uint(pinning, LIBBPF_PIN_BY_NAME);
 } conntrack_map_v6 SEC(".maps");
 
 struct {
@@ -85,6 +87,7 @@ struct {
 struct {
     __uint(type, BPF_MAP_TYPE_RINGBUF);
     __uint(max_entries, 256 * 1024);
+    __uint(pinning, LIBBPF_PIN_BY_NAME);
 } events_ringbuf SEC(".maps");
 
 // IPv6 Address Helper Comparison

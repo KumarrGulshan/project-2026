@@ -85,51 +85,10 @@ static void or_masks(struct rule_mask *dest, const struct rule_mask *src)
     }
 }
 
-static void clear_trie(int trie_fd)
+lfw_status_t lfw_bpf_sync_rules_to_fd(const lfw_rule_t *rules, lfw_u32 rule_count, lfw_action_t default_action,
+                                      int rules_fd, int config_fd, int src_trie_fd, int dst_trie_fd,
+                                      int src_trie6_fd, int dst_trie6_fd)
 {
-    struct lpm_key keys[1024];
-    int count = 0;
-    struct lpm_key key = {}, next_key = {};
-    
-    int res = bpf_map_get_next_key(trie_fd, NULL, &next_key);
-    while (res == 0 && count < 1024) {
-        keys[count++] = next_key;
-        key = next_key;
-        res = bpf_map_get_next_key(trie_fd, &key, &next_key);
-    }
-    
-    for (int i = 0; i < count; i++) {
-        bpf_map_delete_elem(trie_fd, &keys[i]);
-    }
-}
-
-static void clear_trie6(int trie_fd)
-{
-    struct lpm6_key keys[1024];
-    int count = 0;
-    struct lpm6_key key = {}, next_key = {};
-    
-    int res = bpf_map_get_next_key(trie_fd, NULL, &next_key);
-    while (res == 0 && count < 1024) {
-        keys[count++] = next_key;
-        key = next_key;
-        res = bpf_map_get_next_key(trie_fd, &key, &next_key);
-    }
-    
-    for (int i = 0; i < count; i++) {
-        bpf_map_delete_elem(trie_fd, &keys[i]);
-    }
-}
-
-lfw_status_t lfw_bpf_sync_rules(const lfw_rule_t *rules, lfw_u32 rule_count, lfw_action_t default_action)
-{
-    int rules_fd = lfw_bpf_get_rules_map_fd();
-    int config_fd = lfw_bpf_get_config_map_fd();
-    int src_trie_fd = lfw_bpf_get_src_ip_trie_fd();
-    int dst_trie_fd = lfw_bpf_get_dst_ip_trie_fd();
-    int src_trie6_fd = lfw_bpf_get_src_ip6_trie_fd();
-    int dst_trie6_fd = lfw_bpf_get_dst_ip6_trie_fd();
-
     if (rules_fd < 0 || config_fd < 0 || src_trie_fd < 0 || dst_trie_fd < 0 ||
         src_trie6_fd < 0 || dst_trie6_fd < 0) {
         lfw_log_error("BPF maps not initialized");
@@ -150,12 +109,6 @@ lfw_status_t lfw_bpf_sync_rules(const lfw_rule_t *rules, lfw_u32 rule_count, lfw
         lfw_log_error("Failed to update config rule count: %s", strerror(errno));
         return LFW_ERR_GENERIC;
     }
-
-    // 2. Clear old trie maps
-    clear_trie(src_trie_fd);
-    clear_trie(dst_trie_fd);
-    clear_trie6(src_trie6_fd);
-    clear_trie6(dst_trie6_fd);
 
     // 3. Populate rules details map
     for (__u32 i = 0; i < 256; i++) {
@@ -718,4 +671,18 @@ void lfw_bpf_dump_stats(const lfw_rule_t *orig_rules, lfw_u32 orig_rule_count, l
     }
 
     lfw_log_info("===========================");
+}
+
+lfw_status_t lfw_bpf_sync_rules(const lfw_rule_t *rules, lfw_u32 rule_count, lfw_action_t default_action)
+{
+    int rules_fd = lfw_bpf_get_rules_map_fd();
+    int config_fd = lfw_bpf_get_config_map_fd();
+    int src_trie_fd = lfw_bpf_get_src_ip_trie_fd();
+    int dst_trie_fd = lfw_bpf_get_dst_ip_trie_fd();
+    int src_trie6_fd = lfw_bpf_get_src_ip6_trie_fd();
+    int dst_trie6_fd = lfw_bpf_get_dst_ip6_trie_fd();
+
+    return lfw_bpf_sync_rules_to_fd(rules, rule_count, default_action,
+                                    rules_fd, config_fd, src_trie_fd, dst_trie_fd,
+                                    src_trie6_fd, dst_trie6_fd);
 }
