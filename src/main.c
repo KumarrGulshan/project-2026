@@ -45,12 +45,22 @@ static int handle_event(void *ctx, void *data, size_t data_sz) {
 
   struct lfw_event *event = (struct lfw_event *)data;
 
-  char src_ip_str[32];
-  char dst_ip_str[32];
-  struct in_addr src_in = {.s_addr = event->src_ip};
-  struct in_addr dst_in = {.s_addr = event->dst_ip};
-  inet_ntop(AF_INET, &src_in, src_ip_str, sizeof(src_ip_str));
-  inet_ntop(AF_INET, &dst_in, dst_ip_str, sizeof(dst_ip_str));
+  char src_ip_str[64];
+  char dst_ip_str[64];
+
+  if (event->ip_version == 4) {
+    struct in_addr src_in = {.s_addr = event->src_ip.v4};
+    struct in_addr dst_in = {.s_addr = event->dst_ip.v4};
+    inet_ntop(AF_INET, &src_in, src_ip_str, sizeof(src_ip_str));
+    inet_ntop(AF_INET, &dst_in, dst_ip_str, sizeof(dst_ip_str));
+  } else {
+    struct in6_addr src_in6;
+    struct in6_addr dst_in6;
+    memcpy(&src_in6, &event->src_ip.v6, 16);
+    memcpy(&dst_in6, &event->dst_ip.v6, 16);
+    inet_ntop(AF_INET6, &src_in6, src_ip_str, sizeof(src_ip_str));
+    inet_ntop(AF_INET6, &dst_in6, dst_ip_str, sizeof(dst_ip_str));
+  }
 
   const char *proto = "unknown";
   if (event->proto == 1)
@@ -118,12 +128,6 @@ static void *conntrack_gc_loop(void *arg) {
     if (!g_running)
       break;
 
-    int fd = lfw_bpf_get_conntrack_map_fd();
-    if (fd < 0)
-      continue;
-
-    struct conntrack_key key = {}, next_key = {};
-    struct conntrack_val val = {};
     struct timespec ts;
     __u64 now = 0;
 
@@ -133,25 +137,60 @@ static void *conntrack_gc_loop(void *arg) {
       continue;
     }
 
-    int has_more = bpf_map_get_next_key(fd, NULL, &next_key) == 0;
-    while (has_more) {
-      key = next_key;
-      has_more = bpf_map_get_next_key(fd, &key, &next_key) == 0;
+    // IPv4 GC
+    int fd = lfw_bpf_get_conntrack_map_fd();
+    if (fd >= 0) {
+      struct conntrack_key key = {}, next_key = {};
+      struct conntrack_val val = {};
+      int has_more = bpf_map_get_next_key(fd, NULL, &next_key) == 0;
+      while (has_more) {
+        key = next_key;
+        has_more = bpf_map_get_next_key(fd, &key, &next_key) == 0;
 
-      if (bpf_map_lookup_elem(fd, &key, &val) == 0) {
-        __u64 timeout = UDP_TIMEOUT_NS;
-        if (key.proto == 1) { // TCP
-          if (val.state == LFW_TCP_STATE_SYN_SENT)
-            timeout = TCP_TIMEOUT_SYN_SENT_NS;
-          else if (val.state == LFW_TCP_STATE_SYN_RECV)
-            timeout = TCP_TIMEOUT_SYN_RECV_NS;
-          else if (val.state == LFW_TCP_STATE_FIN_WAIT)
-            timeout = TCP_TIMEOUT_FIN_WAIT_NS;
-          else
-            timeout = TCP_TIMEOUT_ESTABLISHED_NS;
+        if (bpf_map_lookup_elem(fd, &key, &val) == 0) {
+          __u64 timeout = UDP_TIMEOUT_NS;
+          if (key.proto == 1) { // TCP
+            if (val.state == LFW_TCP_STATE_SYN_SENT)
+              timeout = TCP_TIMEOUT_SYN_SENT_NS;
+            else if (val.state == LFW_TCP_STATE_SYN_RECV)
+              timeout = TCP_TIMEOUT_SYN_RECV_NS;
+            else if (val.state == LFW_TCP_STATE_FIN_WAIT)
+              timeout = TCP_TIMEOUT_FIN_WAIT_NS;
+            else
+              timeout = TCP_TIMEOUT_ESTABLISHED_NS;
+          }
+          if (now - val.last_seen > timeout) {
+            bpf_map_delete_elem(fd, &key);
+          }
         }
-        if (now - val.last_seen > timeout) {
-          bpf_map_delete_elem(fd, &key);
+      }
+    }
+
+    // IPv6 GC
+    int fd_v6 = lfw_bpf_get_conntrack_map_v6_fd();
+    if (fd_v6 >= 0) {
+      struct conntrack_key_v6 key = {}, next_key = {};
+      struct conntrack_val val = {};
+      int has_more = bpf_map_get_next_key(fd_v6, NULL, &next_key) == 0;
+      while (has_more) {
+        key = next_key;
+        has_more = bpf_map_get_next_key(fd_v6, &key, &next_key) == 0;
+
+        if (bpf_map_lookup_elem(fd_v6, &key, &val) == 0) {
+          __u64 timeout = UDP_TIMEOUT_NS;
+          if (key.proto == 1) { // TCP
+            if (val.state == LFW_TCP_STATE_SYN_SENT)
+              timeout = TCP_TIMEOUT_SYN_SENT_NS;
+            else if (val.state == LFW_TCP_STATE_SYN_RECV)
+              timeout = TCP_TIMEOUT_SYN_RECV_NS;
+            else if (val.state == LFW_TCP_STATE_FIN_WAIT)
+              timeout = TCP_TIMEOUT_FIN_WAIT_NS;
+            else
+              timeout = TCP_TIMEOUT_ESTABLISHED_NS;
+          }
+          if (now - val.last_seen > timeout) {
+            bpf_map_delete_elem(fd_v6, &key);
+          }
         }
       }
     }

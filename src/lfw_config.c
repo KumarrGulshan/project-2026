@@ -74,6 +74,84 @@ static bool parse_ipv4_cidr(const char *text, lfw_ipv4_t *ip_out, lfw_ipv4_t *ma
     return true;
 }
 
+static bool parse_ipv6(const char *text, lfw_ipv6_t *out)
+{
+    struct in6_addr addr;
+
+    if (!text || !out)
+        return false;
+
+    if (inet_pton(AF_INET6, text, &addr) != 1)
+        return false;
+
+    memcpy(out->addr, addr.s6_addr, 16);
+    return true;
+}
+
+static bool parse_ipv6_cidr(const char *text, lfw_ipv6_t *ip_out, lfw_ipv6_t *mask_out)
+{
+    if (!text || !ip_out || !mask_out)
+        return false;
+
+    char buf[128];
+    if (strlen(text) >= sizeof(buf))
+        return false;
+    strcpy(buf, text);
+
+    char *slash = strchr(buf, '/');
+    if (!slash) {
+        if (!parse_ipv6(buf, ip_out))
+            return false;
+        memset(mask_out->addr, 0xFF, 16);
+        return true;
+    }
+
+    *slash = '\0';
+    char *cidr_str = slash + 1;
+
+    if (!parse_ipv6(buf, ip_out))
+        return false;
+
+    char *endptr;
+    long prefix = strtol(cidr_str, &endptr, 10);
+    if (*endptr != '\0' || prefix < 0 || prefix > 128)
+        return false;
+
+    memset(mask_out->addr, 0, 16);
+    for (int i = 0; i < 16; i++) {
+        if (prefix >= 8) {
+            mask_out->addr[i] = 0xFF;
+            prefix -= 8;
+        } else if (prefix > 0) {
+            mask_out->addr[i] = (uint8_t)(0xFF << (8 - prefix));
+            prefix = 0;
+        } else {
+            mask_out->addr[i] = 0;
+        }
+    }
+
+    for (int i = 0; i < 16; i++) {
+        ip_out->addr[i] &= mask_out->addr[i];
+    }
+    return true;
+}
+
+static bool parse_ip_cidr(const char *text, lfw_ip_t *ip_out, lfw_ip_t *mask_out)
+{
+    if (!text || !ip_out || !mask_out)
+        return false;
+
+    if (strchr(text, ':') != NULL) {
+        ip_out->ip_version = 6;
+        mask_out->ip_version = 6;
+        return parse_ipv6_cidr(text, &ip_out->v6, &mask_out->v6);
+    } else {
+        ip_out->ip_version = 4;
+        mask_out->ip_version = 4;
+        return parse_ipv4_cidr(text, &ip_out->v4, &mask_out->v4);
+    }
+}
+
 static bool parse_port_proto(const char *text,
                              lfw_proto_t *proto_inout,
                              lfw_port_range_t *port_range_out,
@@ -237,12 +315,10 @@ static lfw_status_t parse_rule_line(char *line,
                 return LFW_ERR_INVALID;
 
             if (strcasecmp(ip, "any") != 0) {
-                if (!parse_ipv4_cidr(ip, &rule.match.src_ip, &rule.match.src_mask))
+                if (!parse_ip_cidr(ip, &rule.match.src_ip, &rule.match.src_mask))
                     return LFW_ERR_INVALID;
 
                 rule.match.match_src_ip = true;
-            } else {
-                rule.match.src_mask.addr = 0;
             }
         }
         else if (strcasecmp(tok, "to") == 0) {
@@ -251,12 +327,10 @@ static lfw_status_t parse_rule_line(char *line,
                 return LFW_ERR_INVALID;
 
             if (strcasecmp(ip, "any") != 0) {
-                if (!parse_ipv4_cidr(ip, &rule.match.dst_ip, &rule.match.dst_mask))
+                if (!parse_ip_cidr(ip, &rule.match.dst_ip, &rule.match.dst_mask))
                     return LFW_ERR_INVALID;
 
                 rule.match.match_dst_ip = true;
-            } else {
-                rule.match.dst_mask.addr = 0;
             }
         }
         else {
@@ -264,6 +338,20 @@ static lfw_status_t parse_rule_line(char *line,
         }
 
         tok = strtok(NULL, " \t\r\n");
+    }
+
+    if (rule.match.match_src_ip && rule.match.match_dst_ip) {
+        if (rule.match.src_ip.ip_version != rule.match.dst_ip.ip_version) {
+            return LFW_ERR_INVALID;
+        }
+    }
+
+    if (rule.match.match_src_ip) {
+        rule.match.ip_version = rule.match.src_ip.ip_version;
+    } else if (rule.match.match_dst_ip) {
+        rule.match.ip_version = rule.match.dst_ip.ip_version;
+    } else {
+        rule.match.ip_version = 0; // any
     }
 
     *out_rule = rule;

@@ -9,13 +9,14 @@
 ## 1. Features
 
 * **eBPF/TC-based filtering**: Intercepts packets in-kernel at the Traffic Control (TC) ingress/egress hooks and issues high-performance ACCEPT or DROP/SHOT verdicts.
-* **Stateful connection tracking**: Tracks active 5-tuple connections (Source IP, Destination IP, Source Port, Destination Port, Protocol) with a background thread that periodically purges expired connections.
-* **Subnet/CIDR Matching**: Supports bitwise subnet masking for rule definitions (e.g. `/24`, `/16`, or `any`).
+* **Stateful connection tracking**: Tracks active 5-tuple connections (Source IP, Destination IP, Source Port, Destination Port, Protocol) for both IPv4 and IPv6, with a background thread that periodically purges expired connections.
+* **Subnet/CIDR Matching**: Supports bitwise subnet masking for both IPv4 and IPv6 rule definitions (e.g. `/24`, `/64`, `/32`, or `any`).
+* **Port Range Support**: Allows matching destination ports by ranges (e.g. `67-68` or `546-547`) or single ports.
 * **Thread-Safe Architecture**: Full concurrency protection utilizing reader-writer locks (`pthread_rwlock_t`) for rules evaluation/reload and mutexes (`pthread_mutex_t`) for connection tracking.
 * **On-the-fly Config Reload (SIGHUP)**: Dynamic reload of rulesets without terminating the daemon or dropping active connection tracking states.
-* **Operational Metrics (SIGUSR1)**: Real-time statistics dump of rule hits, throughput bytes, and connection counts directly to syslog.
-* **Production Logging**: Integration with `syslog` for structured, prioritize-based system logging.
-* **IPv4 Support**: Full support for TCP, UDP, and ICMP.
+* **Operational Metrics (SIGUSR1)**: Real-time statistics dump of rule hits, throughput bytes, and connection counts (both IPv4 and IPv6) directly to syslog.
+* **Production Logging**: Integration with `syslog` for structured, JSON-based telemetry.
+* **Dual-Stack Support**: Full stateful filtering support for IPv4 and IPv6 TCP, UDP, and ICMP/ICMPv6.
 
 
 ## 2. Requirements
@@ -92,10 +93,10 @@ By default, `lfw` reads rules from:
 
 - `/etc/lfw/lfw.rules`
 
-You can also pass a custom rules file path as the first CLI argument:
+You can also pass a custom rules file path as the second CLI argument after the interface:
 
 ```bash
-sudo build/lfw /path/to/custom.rules
+sudo build/lfw <interface> /path/to/custom.rules
 ```
 
 ### 4.1 Syntax
@@ -108,8 +109,8 @@ ACTION [PROTO] [PORT] [from SRC] [to DST]
 
 - **ACTION**: `allow` | `deny` (or `drop`)
 - **PROTO**: `any` | `tcp` | `udp` | `icmp` (optional, default: any)
-- **PORT**: integer port (e.g. `22`), or `PORT/PROTO` (e.g. `53/udp`) (optional; matches destination port)
-- **SRC/DST**: `any`, IPv4 address (e.g. `192.168.1.10`), or CIDR subnet (e.g. `192.168.1.0/24`)
+- **PORT**: single port (e.g. `22`), port range (e.g. `67-68`), or `PORT/PROTO` (e.g. `53/udp`) (optional; matches destination port/range)
+- **SRC/DST**: `any`, IPv4 address (e.g. `192.168.1.10`), IPv6 address (e.g. `2001:db8::1`), IPv4 CIDR (e.g. `192.168.1.0/24`), or IPv6 CIDR (e.g. `2001:db8::/32`)
 
 Lines starting with `#` or empty lines are ignored.
 
@@ -119,16 +120,24 @@ Lines starting with `#` or empty lines are ignored.
 # Deny by default
 default deny
 
-# Allow HTTP from a local subnet
-allow tcp 80 from 192.168.1.0/24
+# Allow loopback interface traffic
+allow tcp from 127.0.0.1 to 127.0.0.1
+allow tcp from ::1 to ::1
 
-# Allow SSH from any host
-allow tcp 22
+# Allow DHCPv4 and DHCPv6 client ports
+allow udp 67-68
+allow udp 546-547
 
-# Allow DNS from a specific subnet to a public resolver
-allow 53/udp from 10.0.0.0/8 to 8.8.8.8/32
+# Allow HTTPS from anywhere
+allow tcp 443
 
-# Allow ICMP from anywhere
+# Allow DNS queries to a specific resolver
+allow udp 53 to 8.8.8.8
+
+# Allow HTTP from a local IPv6 subnet
+allow tcp 80 from 2001:db8::/32
+
+# Allow ICMP (Ping)
 allow icmp
 ```
 
@@ -208,10 +217,14 @@ sudo systemctl status lfw@eth0
 ## 6. Internal Architecture
 
 * **eBPF Filter**: Intercepts packets directly in the kernel's TC ingress and egress pipelines, parsing packet headers (L3/L4) and matching them against active rules and connections for sub-microsecond filtering.
-* **State/Conntrack Map**: A BPF Hash Map (`conntrack_map`) with up to 4096 entries tracking active UDP and stateful TCP connections (SYN-SENT, SYN-RECV, ESTABLISHED, FIN-WAIT). Out-of-state TCP packets (e.g. non-SYN packets arriving before connection establishment) are dropped.
+* **State/Conntrack Maps**: 
+  - `conntrack_map`: A BPF Hash Map tracking active IPv4 connections.
+  - `conntrack_map_v6`: A BPF Hash Map tracking active IPv6 connections.
+  - Both track stateful TCP connections (SYN-SENT, SYN-RECV, ESTABLISHED, FIN-WAIT) and UDP flows. Out-of-state TCP packets (e.g., non-SYN packets arriving before connection establishment) are dropped.
 * **Rules Map**: A BPF Array Map (`rules_details_map`) populated by the userspace daemon containing up to 256 compiled rules.
 * **Config Map**: A BPF Array Map (`config_map`) storing runtime configuration parameters (e.g., default action and rule count).
-* **Background Housekeeper**: A userspace thread that periodically sweeps the `conntrack_map` in the kernel and deletes expired connections using state-specific timeouts (e.g. shorter timeouts for unfinished TCP handshakes).
+* **Trie Maps**: LPM (Longest Prefix Match) Trie maps (`src_ip_trie`, `dst_ip_trie`, `src_ip6_trie`, `dst_ip6_trie`) populated by the userspace daemon for high-performance bitwise subnet/CIDR matching.
+* **Background Housekeeper**: A userspace thread that periodically sweeps `conntrack_map` and `conntrack_map_v6` in the kernel and deletes expired connections using state-specific timeouts (e.g. shorter timeouts for unfinished TCP handshakes).
 * **Config Loader**: Parses text-based rules files in userspace and synchronizes compiled rule structures and policies to the BPF maps.
 
 

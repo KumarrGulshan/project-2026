@@ -40,14 +40,15 @@ Examples:
 - If the rules file cannot be loaded, the tool falls back to:
   - **empty ruleset**
   - **default action = DROP** (deny all inbound), same as the daemon’s failure behaviour.
-- For each IPv4 packet in the pcap:
-  - The tool skips the 14‑byte Ethernet header.
-  - Parses the packet with `lfw_parse_ipv4_packet(..., LFW_DIR_INBOUND, ...)`.
+- For each IPv4 or IPv6 packet in the pcap:
+  - The tool skips the link-layer header (Ethernet/Linux Cooked Capture SLL).
+  - Parses the packet using `lfw_parse_packet(..., LFW_DIR_INBOUND, ...)`.
   - Evaluates it with `lfw_engine_evaluate`.
-  - Prints a line such as:
+  - Prints a formatted log entry for each evaluation:
 
 ```text
-packet verdict: ACCEPT
-packet verdict: DROP
+[lfw] ALLOW in  udp    10.63.143.120:59081 ->  139.84.142.141:123   (NEW)
+[lfw] DENY  in  tcp    10.63.143.120:53968 ->         8.8.8.8:853   [AP]
+[lfw] ALLOW in  tcp  2409:40e4:2b:8008:7213:3f8f:555e:fec9:53046 -> 2404:6800:4002:830::200e:80    [S] (NEW)
 ```
 

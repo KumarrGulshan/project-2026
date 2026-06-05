@@ -31,6 +31,20 @@ typedef struct {
     lfw_u32 addr;
 } lfw_ipv4_t;
 
+// IPv6 address
+typedef struct {
+    lfw_u8 addr[16];
+} lfw_ipv6_t;
+
+// Unified IP address
+typedef struct {
+    lfw_u8 ip_version; // 4 or 6
+    union {
+        lfw_ipv4_t v4;
+        lfw_ipv6_t v6;
+    };
+} lfw_ip_t;
+
 // Port (network byte order)
 typedef struct {
     lfw_u16 port;

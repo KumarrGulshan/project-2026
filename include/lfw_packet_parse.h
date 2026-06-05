@@ -9,8 +9,8 @@
 #include "lfw_packet.h"
 #include "lfw_types.h"
 
-// Parse IPv4 packet
-lfw_status_t lfw_parse_ipv4_packet(
+// Parse IP packet (IPv4 or IPv6)
+lfw_status_t lfw_parse_packet(
     const uint8_t *data,
     size_t len,
     lfw_direction_t direction,

@@ -22,6 +22,9 @@ static int g_rules_map_fd = -1;
 static int g_config_map_fd = -1;
 static int g_src_ip_trie_fd = -1;
 static int g_dst_ip_trie_fd = -1;
+static int g_src_ip6_trie_fd = -1;
+static int g_dst_ip6_trie_fd = -1;
+static int g_conntrack_map_v6_fd = -1;
 static int g_events_ringbuf_fd = -1;
 
 int lfw_bpf_get_conntrack_map_fd(void) { return g_conntrack_map_fd; }
@@ -29,6 +32,9 @@ int lfw_bpf_get_rules_map_fd(void) { return g_rules_map_fd; }
 int lfw_bpf_get_config_map_fd(void) { return g_config_map_fd; }
 int lfw_bpf_get_src_ip_trie_fd(void) { return g_src_ip_trie_fd; }
 int lfw_bpf_get_dst_ip_trie_fd(void) { return g_dst_ip_trie_fd; }
+int lfw_bpf_get_src_ip6_trie_fd(void) { return g_src_ip6_trie_fd; }
+int lfw_bpf_get_dst_ip6_trie_fd(void) { return g_dst_ip6_trie_fd; }
+int lfw_bpf_get_conntrack_map_v6_fd(void) { return g_conntrack_map_v6_fd; }
 int lfw_bpf_get_events_ringbuf_fd(void) { return g_events_ringbuf_fd; }
 
 lfw_status_t lfw_bpf_init(const char *ifname, const char *bpf_obj_path)
@@ -71,10 +77,15 @@ lfw_status_t lfw_bpf_init(const char *ifname, const char *bpf_obj_path)
     g_config_map_fd = bpf_object__find_map_fd_by_name(g_bpf_obj, "config_map");
     g_src_ip_trie_fd = bpf_object__find_map_fd_by_name(g_bpf_obj, "src_ip_trie");
     g_dst_ip_trie_fd = bpf_object__find_map_fd_by_name(g_bpf_obj, "dst_ip_trie");
+    g_src_ip6_trie_fd = bpf_object__find_map_fd_by_name(g_bpf_obj, "src_ip6_trie");
+    g_dst_ip6_trie_fd = bpf_object__find_map_fd_by_name(g_bpf_obj, "dst_ip6_trie");
+    g_conntrack_map_v6_fd = bpf_object__find_map_fd_by_name(g_bpf_obj, "conntrack_map_v6");
     g_events_ringbuf_fd = bpf_object__find_map_fd_by_name(g_bpf_obj, "events_ringbuf");
 
     if (g_conntrack_map_fd < 0 || g_rules_map_fd < 0 || g_config_map_fd < 0 ||
-        g_src_ip_trie_fd < 0 || g_dst_ip_trie_fd < 0 || g_events_ringbuf_fd < 0) {
+        g_src_ip_trie_fd < 0 || g_dst_ip_trie_fd < 0 ||
+        g_src_ip6_trie_fd < 0 || g_dst_ip6_trie_fd < 0 || g_conntrack_map_v6_fd < 0 ||
+        g_events_ringbuf_fd < 0) {
         lfw_log_error("Failed to find required BPF maps");
         lfw_bpf_cleanup();
         return LFW_ERR_GENERIC;
@@ -171,5 +182,8 @@ void lfw_bpf_cleanup(void)
     g_config_map_fd = -1;
     g_src_ip_trie_fd = -1;
     g_dst_ip_trie_fd = -1;
+    g_src_ip6_trie_fd = -1;
+    g_dst_ip6_trie_fd = -1;
+    g_conntrack_map_v6_fd = -1;
     g_events_ringbuf_fd = -1;
 }

@@ -19,13 +19,13 @@ typedef enum {
 } slot_state_t;
 
 typedef struct {
-    lfw_u32 src_ip;
-    lfw_u32 dst_ip;
-    lfw_u16 src_port;
-    lfw_u16 dst_port;
-    lfw_u8  protocol;
-    lfw_u8  state;
-    lfw_u64 last_seen;
+    lfw_ip_t src_ip;
+    lfw_ip_t dst_ip;
+    lfw_u16  src_port;
+    lfw_u16  dst_port;
+    lfw_u8   protocol;
+    lfw_u8   state;
+    lfw_u64  last_seen;
 } lfw_conn_entry_t;
 
 struct lfw_state {
@@ -54,13 +54,24 @@ static void entry_set_empty(lfw_conn_entry_t *e)
 // Normalize connection tuple for bidirectional matching
 static void normalize_key(const lfw_packet_t *pkt, lfw_conn_entry_t *e)
 {
-    lfw_u32 a_ip   = pkt->ip4.src.addr;
-    lfw_u32 b_ip   = pkt->ip4.dst.addr;
+    lfw_ip_t a_ip   = pkt->ip.src;
+    lfw_ip_t b_ip   = pkt->ip.dst;
     lfw_u16 a_port = pkt->l4.src_port.port;
     lfw_u16 b_port = pkt->l4.dst_port.port;
 
-    // Deterministic ordering
-    if (a_ip < b_ip || (a_ip == b_ip && a_port <= b_port)) {
+    bool swap = false;
+    if (a_ip.ip_version == 4) {
+        if (a_ip.v4.addr > b_ip.v4.addr || (a_ip.v4.addr == b_ip.v4.addr && a_port > b_port)) {
+            swap = true;
+        }
+    } else {
+        int cmp = memcmp(a_ip.v6.addr, b_ip.v6.addr, 16);
+        if (cmp > 0 || (cmp == 0 && a_port > b_port)) {
+            swap = true;
+        }
+    }
+
+    if (!swap) {
         e->src_ip   = a_ip;
         e->dst_ip   = b_ip;
         e->src_port = a_port;
@@ -77,7 +88,14 @@ static void normalize_key(const lfw_packet_t *pkt, lfw_conn_entry_t *e)
 
 static lfw_u32 hash_entry(const lfw_conn_entry_t *e)
 {
-    lfw_u32 h = e->src_ip ^ e->dst_ip;
+    lfw_u32 h = 0;
+    if (e->src_ip.ip_version == 4) {
+        h = e->src_ip.v4.addr ^ e->dst_ip.v4.addr;
+    } else {
+        for (int i = 0; i < 4; i++) {
+            h ^= ((lfw_u32*)e->src_ip.v6.addr)[i] ^ ((lfw_u32*)e->dst_ip.v6.addr)[i];
+        }
+    }
     h ^= ((lfw_u32)e->src_port << 16) | e->dst_port;
     h ^= ((lfw_u32)e->protocol << 24);
     return h;
@@ -86,11 +104,21 @@ static lfw_u32 hash_entry(const lfw_conn_entry_t *e)
 static bool entry_equal(const lfw_conn_entry_t *a,
                         const lfw_conn_entry_t *b)
 {
-    return a->src_ip   == b->src_ip   &&
-            a->dst_ip   == b->dst_ip   &&
-            a->src_port == b->src_port &&
-            a->dst_port == b->dst_port &&
-            a->protocol == b->protocol;
+    if (a->src_ip.ip_version != b->src_ip.ip_version ||
+        a->src_port != b->src_port ||
+        a->dst_port != b->dst_port ||
+        a->protocol != b->protocol)
+    {
+        return false;
+    }
+
+    if (a->src_ip.ip_version == 4) {
+        return a->src_ip.v4.addr == b->src_ip.v4.addr &&
+               a->dst_ip.v4.addr == b->dst_ip.v4.addr;
+    } else {
+        return memcmp(a->src_ip.v6.addr, b->src_ip.v6.addr, 16) == 0 &&
+               memcmp(a->dst_ip.v6.addr, b->dst_ip.v6.addr, 16) == 0;
+    }
 }
 
 static bool entry_expired(const lfw_conn_entry_t *e, lfw_u64 now)

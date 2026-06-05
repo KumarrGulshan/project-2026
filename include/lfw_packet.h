@@ -4,11 +4,11 @@
 #include <stdbool.h>
 #include "lfw_types.h"
 
-// IPv4 header abstraction
+// IP header abstraction
 typedef struct {
-    lfw_ipv4_t src;
-    lfw_ipv4_t dst;
-} lfw_ip4_hdr_t;
+    lfw_ip_t src;
+    lfw_ip_t dst;
+} lfw_ip_hdr_t;
 
 // Transport ports
 typedef struct {
@@ -21,13 +21,14 @@ typedef struct {
     lfw_direction_t direction;
     lfw_proto_t     protocol;
 
-    lfw_ip4_hdr_t   ip4;
+    lfw_ip_hdr_t    ip;
     lfw_l4_ports_t  l4;
 
     bool is_new_connection;
     bool is_established;
     lfw_u8       tcp_flags;
     lfw_u32      length;
+    bool         is_v6;
 } lfw_packet_t;
 
 #endif

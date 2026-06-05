@@ -67,7 +67,7 @@ bpf: $(BPF_OBJ)
 	@echo "[lfw] eBPF kernel program built successfully"
 
 $(BPF_OBJ): src/lfw_bpf.c | $(BUILD)
-	clang -target bpf -O2 -g $(INCLUDES) -I/usr/include/x86_64-linux-gnu \
+	clang -target bpf -mcpu=v3 -O2 -g $(INCLUDES) -I/usr/include/x86_64-linux-gnu \
 		-c src/lfw_bpf.c -o $(BPF_OBJ)
 
 $(LFWBIN): $(SRC_DAEMON) | $(BUILD)

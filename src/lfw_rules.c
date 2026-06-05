@@ -2,15 +2,48 @@
 #include <arpa/inet.h>
 
 // Match IPv4
-static inline bool match_ip(const lfw_ipv4_t *rule_ip,
-                            const lfw_ipv4_t *rule_mask,
-                            const lfw_ipv4_t *pkt_ip,
-                            bool enabled)
+static inline bool match_ip4(const lfw_ipv4_t *rule_ip,
+                             const lfw_ipv4_t *rule_mask,
+                             const lfw_ipv4_t *pkt_ip,
+                             bool enabled)
 {
     if (!enabled)
         return true;
 
     return (pkt_ip->addr & rule_mask->addr) == (rule_ip->addr & rule_mask->addr);
+}
+
+// Match IPv6
+static inline bool match_ip6(const lfw_ipv6_t *rule_ip,
+                             const lfw_ipv6_t *rule_mask,
+                             const lfw_ipv6_t *pkt_ip,
+                             bool enabled)
+{
+    if (!enabled)
+        return true;
+
+    for (int i = 0; i < 16; i++) {
+        if ((pkt_ip->addr[i] & rule_mask->addr[i]) != (rule_ip->addr[i] & rule_mask->addr[i]))
+            return false;
+    }
+    return true;
+}
+
+// Match IP (wrapper)
+static inline bool match_ip(const lfw_ip_t *rule_ip,
+                            const lfw_ip_t *rule_mask,
+                            const lfw_ip_t *pkt_ip,
+                            bool enabled)
+{
+    if (!enabled)
+        return true;
+
+    if (pkt_ip->ip_version == 4) {
+        return match_ip4(&rule_ip->v4, &rule_mask->v4, &pkt_ip->v4, enabled);
+    } else if (pkt_ip->ip_version == 6) {
+        return match_ip6(&rule_ip->v6, &rule_mask->v6, &pkt_ip->v6, enabled);
+    }
+    return false;
 }
 
 // Match port
@@ -41,7 +74,11 @@ bool lfw_rule_match(const lfw_rule_t *rule,
     if (!rule || !packet)
         return false;
 
-    // Protocol check first
+    // Check version compatibility first
+    if (rule->match.ip_version != 0 && rule->match.ip_version != packet->ip.src.ip_version)
+        return false;
+
+    // Protocol check
     if (!match_proto(rule->match.protocol,
                     packet->protocol))
         return false;
@@ -49,13 +86,13 @@ bool lfw_rule_match(const lfw_rule_t *rule,
     // IP match
     if (!match_ip(&rule->match.src_ip,
                 &rule->match.src_mask,
-                &packet->ip4.src,
+                &packet->ip.src,
                 rule->match.match_src_ip))
         return false;
 
     if (!match_ip(&rule->match.dst_ip,
                 &rule->match.dst_mask,
-                &packet->ip4.dst,
+                &packet->ip.dst,
                 rule->match.match_dst_ip))
         return false;
 

@@ -13,12 +13,12 @@ typedef enum {
 
 // Rule match fields
 typedef struct {
-    lfw_ipv4_t src_ip;
-    lfw_ipv4_t src_mask;
-    lfw_ipv4_t dst_ip;
-    lfw_ipv4_t dst_mask;
-    bool       match_src_ip;
-    bool       match_dst_ip;
+    lfw_ip_t src_ip;
+    lfw_ip_t src_mask;
+    lfw_ip_t dst_ip;
+    lfw_ip_t dst_mask;
+    bool     match_src_ip;
+    bool     match_dst_ip;
 
     lfw_proto_t protocol;
 
@@ -27,6 +27,7 @@ typedef struct {
     bool             match_src_port;
     bool             match_dst_port;
 
+    uint8_t          ip_version; // 0: any, 4: IPv4, 6: IPv6
 } lfw_rule_match_t;
 
 // Firewall rule

@@ -3,6 +3,7 @@
 #include <stdarg.h>
 #include <syslog.h>
 #include <arpa/inet.h>
+#include <string.h>
 
 static lfw_log_target_t g_log_target = LFW_LOG_CONSOLE;
 
@@ -38,17 +39,31 @@ void lfw_log_packet(const lfw_packet_t *pkt, lfw_verdict_t verdict)
     if (!pkt)
         return;
 
-    char src_ip[32];
-    char dst_ip[32];
+    char src_ip[48];
+    char dst_ip[48];
 
-    struct in_addr src_addr = { .s_addr = pkt->ip4.src.addr };
-    struct in_addr dst_addr = { .s_addr = pkt->ip4.dst.addr };
+    if (pkt->ip.src.ip_version == 4) {
+        struct in_addr src_addr = { .s_addr = pkt->ip.src.v4.addr };
+        struct in_addr dst_addr = { .s_addr = pkt->ip.dst.v4.addr };
 
-    if (!inet_ntop(AF_INET, &src_addr, src_ip, sizeof(src_ip))) {
-        snprintf(src_ip, sizeof(src_ip), "invalid");
-    }
-    if (!inet_ntop(AF_INET, &dst_addr, dst_ip, sizeof(dst_ip))) {
-        snprintf(dst_ip, sizeof(dst_ip), "invalid");
+        if (!inet_ntop(AF_INET, &src_addr, src_ip, sizeof(src_ip))) {
+            snprintf(src_ip, sizeof(src_ip), "invalid");
+        }
+        if (!inet_ntop(AF_INET, &dst_addr, dst_ip, sizeof(dst_ip))) {
+            snprintf(dst_ip, sizeof(dst_ip), "invalid");
+        }
+    } else {
+        struct in6_addr src_addr;
+        struct in6_addr dst_addr;
+        memcpy(&src_addr, pkt->ip.src.v6.addr, 16);
+        memcpy(&dst_addr, pkt->ip.dst.v6.addr, 16);
+
+        if (!inet_ntop(AF_INET6, &src_addr, src_ip, sizeof(src_ip))) {
+            snprintf(src_ip, sizeof(src_ip), "invalid");
+        }
+        if (!inet_ntop(AF_INET6, &dst_addr, dst_ip, sizeof(dst_ip))) {
+            snprintf(dst_ip, sizeof(dst_ip), "invalid");
+        }
     }
 
     const char *proto = "any";

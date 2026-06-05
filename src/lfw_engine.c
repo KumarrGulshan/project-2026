@@ -4,6 +4,7 @@
 #include "lfw_log.h"
 #include <stdio.h>
 #include <arpa/inet.h>
+#include <string.h>
 
 // Convert rule action to verdict
 static inline lfw_verdict_t action_to_verdict(lfw_action_t action)
@@ -135,44 +136,86 @@ static void format_rule(const lfw_rule_t *rule, char *buf, size_t buf_len)
     }
 
     if (rule->match.match_src_ip) {
-        char ip_str[32];
-        struct in_addr in;
-        in.s_addr = rule->match.src_ip.addr;
-        inet_ntop(AF_INET, &in, ip_str, sizeof(ip_str));
+        char ip_str[64];
+        if (rule->match.src_ip.ip_version == 4) {
+            struct in_addr in;
+            in.s_addr = rule->match.src_ip.v4.addr;
+            inet_ntop(AF_INET, &in, ip_str, sizeof(ip_str));
 
-        lfw_u32 mask = ntohl(rule->match.src_mask.addr);
-        int prefix = 0;
-        for (int b = 31; b >= 0; b--) {
-            if ((mask >> b) & 1) prefix++;
-            else break;
-        }
+            lfw_u32 mask = ntohl(rule->match.src_mask.v4.addr);
+            int prefix = 0;
+            for (int b = 31; b >= 0; b--) {
+                if ((mask >> b) & 1) prefix++;
+                else break;
+            }
 
-        if (prefix == 32) {
-            offset += snprintf(buf + offset, buf_len - offset, " from %s", ip_str);
+            if (prefix == 32) {
+                offset += snprintf(buf + offset, buf_len - offset, " from %s", ip_str);
+            } else {
+                offset += snprintf(buf + offset, buf_len - offset, " from %s/%d", ip_str, prefix);
+            }
         } else {
-            offset += snprintf(buf + offset, buf_len - offset, " from %s/%d", ip_str, prefix);
+            struct in6_addr in6;
+            memcpy(&in6, rule->match.src_ip.v6.addr, 16);
+            inet_ntop(AF_INET6, &in6, ip_str, sizeof(ip_str));
+
+            int prefix = 0;
+            for (int i = 0; i < 16; i++) {
+                uint8_t byte = rule->match.src_mask.v6.addr[i];
+                for (int b = 7; b >= 0; b--) {
+                    if ((byte >> b) & 1) prefix++;
+                    else break;
+                }
+            }
+
+            if (prefix == 128) {
+                offset += snprintf(buf + offset, buf_len - offset, " from %s", ip_str);
+            } else {
+                offset += snprintf(buf + offset, buf_len - offset, " from %s/%d", ip_str, prefix);
+            }
         }
     } else {
         offset += snprintf(buf + offset, buf_len - offset, " from any");
     }
 
     if (rule->match.match_dst_ip) {
-        char ip_str[32];
-        struct in_addr in;
-        in.s_addr = rule->match.dst_ip.addr;
-        inet_ntop(AF_INET, &in, ip_str, sizeof(ip_str));
+        char ip_str[64];
+        if (rule->match.dst_ip.ip_version == 4) {
+            struct in_addr in;
+            in.s_addr = rule->match.dst_ip.v4.addr;
+            inet_ntop(AF_INET, &in, ip_str, sizeof(ip_str));
 
-        lfw_u32 mask = ntohl(rule->match.dst_mask.addr);
-        int prefix = 0;
-        for (int b = 31; b >= 0; b--) {
-            if ((mask >> b) & 1) prefix++;
-            else break;
-        }
+            lfw_u32 mask = ntohl(rule->match.dst_mask.v4.addr);
+            int prefix = 0;
+            for (int b = 31; b >= 0; b--) {
+                if ((mask >> b) & 1) prefix++;
+                else break;
+            }
 
-        if (prefix == 32) {
-            offset += snprintf(buf + offset, buf_len - offset, " to %s", ip_str);
+            if (prefix == 32) {
+                offset += snprintf(buf + offset, buf_len - offset, " to %s", ip_str);
+            } else {
+                offset += snprintf(buf + offset, buf_len - offset, " to %s/%d", ip_str, prefix);
+            }
         } else {
-            offset += snprintf(buf + offset, buf_len - offset, " to %s/%d", ip_str, prefix);
+            struct in6_addr in6;
+            memcpy(&in6, rule->match.dst_ip.v6.addr, 16);
+            inet_ntop(AF_INET6, &in6, ip_str, sizeof(ip_str));
+
+            int prefix = 0;
+            for (int i = 0; i < 16; i++) {
+                uint8_t byte = rule->match.dst_mask.v6.addr[i];
+                for (int b = 7; b >= 0; b--) {
+                    if ((byte >> b) & 1) prefix++;
+                    else break;
+                }
+            }
+
+            if (prefix == 128) {
+                offset += snprintf(buf + offset, buf_len - offset, " to %s", ip_str);
+            } else {
+                offset += snprintf(buf + offset, buf_len - offset, " to %s/%d", ip_str, prefix);
+            }
         }
     } else {
         offset += snprintf(buf + offset, buf_len - offset, " to any");

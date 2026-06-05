@@ -22,6 +22,9 @@ int lfw_bpf_get_rules_map_fd(void);
 int lfw_bpf_get_config_map_fd(void);
 int lfw_bpf_get_src_ip_trie_fd(void);
 int lfw_bpf_get_dst_ip_trie_fd(void);
+int lfw_bpf_get_src_ip6_trie_fd(void);
+int lfw_bpf_get_dst_ip6_trie_fd(void);
+int lfw_bpf_get_conntrack_map_v6_fd(void);
 int lfw_bpf_get_events_ringbuf_fd(void);
 
 #endif

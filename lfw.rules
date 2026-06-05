@@ -1,69 +1,101 @@
 # =====================================================================
-# lfw - Testable Firewall Ruleset (lfw.rules)
+# lfw - Dual-Stack Firewall Ruleset (lfw.rules)
+# Designed for first-time Internet connections (Normal & Professional Users)
 # =====================================================================
 # Syntax:
 #   ACTION [PROTO] [PORT] [from SRC] [to DST]
 #
 #   ACTION  : allow | deny | drop
 #   PROTO   : any | tcp | udp | icmp
-#   PORT    : Port number (matches destination port, e.g. 80, 53)
-#   SRC/DST : any | IPv4 Address (e.g. 1.1.1.1) | CIDR Subnet (e.g. 192.168.1.0/24)
+#   PORT    : Port number/range (matches destination port, e.g. 80, 67-68)
+#   SRC/DST : any | IPv4 Address/CIDR | IPv6 Address/CIDR
 # =====================================================================
 
 # DEFAULT SECURITY POLICY (Fail-Closed)
+# Blocks all inbound and outbound traffic by default unless explicitly allowed.
 default deny
 
-# ---------------------------------------------------------------------
-# DHCP (UDP 67-68)
-# Required to obtain an IPv4 address from the DHCP server (e.g. WiFi AP)
-# ---------------------------------------------------------------------
+# Loopback interface rules (Required for local system health and IDE/tool communication)
+allow tcp from 127.0.0.0/8 to 127.0.0.0/8
+allow udp from 127.0.0.0/8 to 127.0.0.0/8
+allow icmp from 127.0.0.0/8 to 127.0.0.0/8
+allow tcp from ::1 to ::1
+allow udp from ::1 to ::1
+allow icmp from ::1 to ::1
+
+# =====================================================================
+# SECTION 1: BOOTSTRAPPING & LOCAL CONNECTIVITY (IPv4 & IPv6)
+# Required for a PC connecting to the network/internet for the first time
+# =====================================================================
+
+# DHCPv4 (UDP Ports 67-68)
+# Crucial for obtaining an IPv4 address, netmask, and default gateway.
 allow udp 67-68
 
+# DHCPv6 (UDP Ports 546-547)
+# Crucial for obtaining an IPv6 address and stateful configuration.
+allow udp 546-547
 
-# ---------------------------------------------------------------------
-# TEST CASE 1: ICMP (Ping)
-# Note: Since the firewall's state table only tracks TCP/UDP flows,
-# stateless ICMP rules must be bidirectional to allow replies.
-# ---------------------------------------------------------------------
-# ALLOW ping to/from 8.8.8.8
-# DENY ping to/from 1.1.1.1
-# Test commands:
-#   ping -c 3 -4 8.8.8.8   (Should SUCCEED with responses)
-#   ping -c 3 -4 1.1.1.1   (Should FAIL / 100% packet loss)
-allow icmp to 8.8.8.8/32
-allow icmp from 8.8.8.8/32
-deny icmp to 1.1.1.1/32
-deny icmp from 1.1.1.1/32
+# NTP (Network Time Protocol - UDP Port 123)
+# Allows the PC to synchronize its system clock with internet time servers.
+# Accurate system time is mandatory for SSL/TLS certificate validation (HTTPS).
+allow udp 123 to any
 
-# ---------------------------------------------------------------------
-# TEST CASE 2: DNS Resolution (UDP 53)
-# ---------------------------------------------------------------------
-# ALLOW general DNS queries (State tracking handles the inbound replies)
-# DENY DNS queries to 1.1.1.1
-# Test commands:
-#   dig @8.8.8.8 google.com   (Should SUCCEED)
-#   dig @1.1.1.1 google.com   (Should FAIL / Timeout)
-deny udp 53 to 1.1.1.1/32
+# =====================================================================
+# SECTION 2: NETWORK DIAGNOSTICS & SYSTEM DISCOVERY (ICMP / ICMPv6)
+# =====================================================================
+
+# ICMP & ICMPv6 (Ping, Neighbor Discovery, Router Solicitation)
+# Stateless rules are bidirectional to allow replies.
+# Note: IPv6 Neighbor Discovery (NDP) and Router Advertisements are required
+# for IPv6 link-local and global unicast address auto-configuration (SLAAC).
+allow icmp
+
+# =====================================================================
+# SECTION 3: CORE SERVICES (DNS & WEB SURFING)
+# Essential for both Normal Users (Browsing) and Professionals (Updates)
+# =====================================================================
+
+# DNS (Domain Name System - UDP & TCP Port 53)
+# Translates human-readable domain names (like google.com) into IP addresses.
 allow udp 53 to any
+allow tcp 53 to any
 
-# ---------------------------------------------------------------------
-# TEST CASE 3: HTTP/HTTPS Web Traffic (TCP 80 / 443)
-# ---------------------------------------------------------------------
-# ALLOW secure web traffic (HTTPS port 443) to any host
-# DENY insecure web traffic (HTTP port 80) to any host
-# Test commands:
-#   curl -I -4 --connect-timeout 5 https://www.google.com  (Should SUCCEED)
-#   curl -I -4 --connect-timeout 5 http://www.google.com   (Should FAIL / Timeout)
+# DNS over TLS (DoT - TCP Port 853)
+# Allows secure DNS queries over TLS.
+allow tcp 853 to any
+
+
+# Secure Web Traffic (HTTPS - TCP Port 443)
+# Encrypted web traffic for secure browsing, online banking, social media,
+# and package manager updates (apt, dnf, pacman).
 allow tcp 443 to any
-deny tcp 80 to any
 
-# ---------------------------------------------------------------------
-# TEST CASE 4: SSH Outbound Management (TCP 22)
-# ---------------------------------------------------------------------
-# ALLOW SSH connection to a dummy local address (e.g. 192.168.10.10)
-# DENY SSH to all other addresses
-# Test commands:
-#   ssh -o ConnectTimeout=5 192.168.10.10   (Will try to connect, won't be blocked by firewall)
-#   ssh -o ConnectTimeout=5 192.168.10.11   (Will fail immediately / firewall drop)
-allow tcp 22 to 192.168.10.10/32
-deny tcp 22 to any
+# Insecure Web Traffic (HTTP - TCP Port 80)
+# Allowed for initial portal redirects (public Wi-Fi captive portals) and
+# non-sensitive HTTP resources.
+allow tcp 80 to any
+
+# =====================================================================
+# SECTION 4: PROFESSIONAL & DEVELOPER TOOLS
+# Allowed services tailored for software developers and system administrators
+# =====================================================================
+
+# Secure Shell (SSH - TCP Port 22)
+# Outbound SSH: Allows administrators to manage remote servers and push code.
+# Inbound SSH: Restricted to local network subnets for secure access.
+allow tcp 22 to any
+allow tcp 22 from 192.168.0.0/16
+allow tcp 22 from fc00::/7
+
+# Git Protocol (Git - TCP Port 9418)
+# Allows native git cloning and fetching from public repositories.
+allow tcp 9418 to any
+
+# OpenVPN (VPN - UDP Port 1194)
+# Allows secure connection to corporate virtual private networks.
+allow udp 1194 to any
+
+# WireGuard (VPN - UDP Port 51820)
+# Allows high-performance encrypted VPN connections.
+allow udp 51820 to any

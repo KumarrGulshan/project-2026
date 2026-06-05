@@ -121,7 +121,7 @@ int main(int argc, char **argv)
         if (hdr->caplen <= (unsigned int)header_len)
             continue;
 
-        st = lfw_parse_ipv4_packet(
+        st = lfw_parse_packet(
             data + header_len,
             hdr->caplen - header_len,
             LFW_DIR_INBOUND,
