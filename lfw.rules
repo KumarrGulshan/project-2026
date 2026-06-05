@@ -1,21 +1,24 @@
 # =====================================================================
 # lfw - Dual-Stack Firewall Ruleset (lfw.rules)
-# Designed for first-time Internet connections (Normal & Professional Users)
 # =====================================================================
 # Syntax:
 #   ACTION [PROTO] [PORT] [from SRC] [to DST]
 #
 #   ACTION  : allow | deny | drop
-#   PROTO   : any | tcp | udp | icmp
+#   PROTO   : any | tcp | udp | icmp | igmp | icmpv6 | esp | ah
 #   PORT    : Port number/range (matches destination port, e.g. 80, 67-68)
 #   SRC/DST : any | IPv4 Address/CIDR | IPv6 Address/CIDR
 # =====================================================================
 
 # DEFAULT SECURITY POLICY (Fail-Closed)
-# Blocks all inbound and outbound traffic by default unless explicitly allowed.
 default deny
 
-# Loopback interface rules (Required for local system health and IDE/tool communication)
+# Optional: Completely block an IP version (uncomment to use)
+# Note: These must be placed at the top to take precedence over subsequent rules.
+# deny from 0.0.0.0/0   # Completely block all IPv4 traffic
+# deny from ::/0        # Completely block all IPv6 traffic
+
+# Loopback interface rules (Required for local system health)
 allow tcp from 127.0.0.0/8 to 127.0.0.0/8
 allow udp from 127.0.0.0/8 to 127.0.0.0/8
 allow icmp from 127.0.0.0/8 to 127.0.0.0/8
@@ -25,77 +28,56 @@ allow icmp from ::1 to ::1
 
 # =====================================================================
 # SECTION 1: BOOTSTRAPPING & LOCAL CONNECTIVITY (IPv4 & IPv6)
-# Required for a PC connecting to the network/internet for the first time
 # =====================================================================
 
 # DHCPv4 (UDP Ports 67-68)
-# Crucial for obtaining an IPv4 address, netmask, and default gateway.
 allow udp 67-68
 
 # DHCPv6 (UDP Ports 546-547)
-# Crucial for obtaining an IPv6 address and stateful configuration.
 allow udp 546-547
 
 # NTP (Network Time Protocol - UDP Port 123)
-# Allows the PC to synchronize its system clock with internet time servers.
-# Accurate system time is mandatory for SSL/TLS certificate validation (HTTPS).
 allow udp 123 to any
 
 # =====================================================================
 # SECTION 2: NETWORK DIAGNOSTICS & SYSTEM DISCOVERY (ICMP / ICMPv6)
 # =====================================================================
 
-# ICMP & ICMPv6 (Ping, Neighbor Discovery, Router Solicitation)
-# Stateless rules are bidirectional to allow replies.
-# Note: IPv6 Neighbor Discovery (NDP) and Router Advertisements are required
-# for IPv6 link-local and global unicast address auto-configuration (SLAAC).
+# ICMP & ICMPv6 (Ping & Neighbor Discovery)
 allow icmp
+allow icmpv6
 
 # =====================================================================
 # SECTION 3: CORE SERVICES (DNS & WEB SURFING)
-# Essential for both Normal Users (Browsing) and Professionals (Updates)
 # =====================================================================
 
-# DNS (Domain Name System - UDP & TCP Port 53)
-# Translates human-readable domain names (like google.com) into IP addresses.
+# DNS (UDP & TCP Port 53)
 allow udp 53 to any
 allow tcp 53 to any
 
 # DNS over TLS (DoT - TCP Port 853)
-# Allows secure DNS queries over TLS.
 allow tcp 853 to any
 
-
 # Secure Web Traffic (HTTPS - TCP Port 443)
-# Encrypted web traffic for secure browsing, online banking, social media,
-# and package manager updates (apt, dnf, pacman).
 allow tcp 443 to any
 
 # Insecure Web Traffic (HTTP - TCP Port 80)
-# Allowed for initial portal redirects (public Wi-Fi captive portals) and
-# non-sensitive HTTP resources.
 allow tcp 80 to any
 
 # =====================================================================
 # SECTION 4: PROFESSIONAL & DEVELOPER TOOLS
-# Allowed services tailored for software developers and system administrators
 # =====================================================================
 
 # Secure Shell (SSH - TCP Port 22)
-# Outbound SSH: Allows administrators to manage remote servers and push code.
-# Inbound SSH: Restricted to local network subnets for secure access.
 allow tcp 22 to any
 allow tcp 22 from 192.168.0.0/16
 allow tcp 22 from fc00::/7
 
 # Git Protocol (Git - TCP Port 9418)
-# Allows native git cloning and fetching from public repositories.
 allow tcp 9418 to any
 
 # OpenVPN (VPN - UDP Port 1194)
-# Allows secure connection to corporate virtual private networks.
 allow udp 1194 to any
 
 # WireGuard (VPN - UDP Port 51820)
-# Allows high-performance encrypted VPN connections.
 allow udp 51820 to any

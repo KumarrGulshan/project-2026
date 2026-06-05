@@ -68,8 +68,12 @@ void lfw_log_packet(const lfw_packet_t *pkt, lfw_verdict_t verdict)
 
     const char *proto = "any";
     if (pkt->protocol == LFW_PROTO_TCP)  proto = "tcp";
-    if (pkt->protocol == LFW_PROTO_UDP)  proto = "udp";
-    if (pkt->protocol == LFW_PROTO_ICMP) proto = "icmp";
+    else if (pkt->protocol == LFW_PROTO_UDP)  proto = "udp";
+    else if (pkt->protocol == LFW_PROTO_ICMP) proto = "icmp";
+    else if (pkt->protocol == LFW_PROTO_IGMP) proto = "igmp";
+    else if (pkt->protocol == LFW_PROTO_ICMPV6) proto = "icmpv6";
+    else if (pkt->protocol == LFW_PROTO_ESP) proto = "esp";
+    else if (pkt->protocol == LFW_PROTO_AH) proto = "ah";
 
     const char *dir = "unknown";
     if (pkt->direction == LFW_DIR_INBOUND)  dir = "in";

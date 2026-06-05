@@ -124,31 +124,28 @@ static __attribute__((noinline)) int do_ipv4_filter(struct __sk_buff *skb, struc
     __be32 src_ip = ip->saddr;
     __be32 dst_ip = ip->daddr;
     __u8 proto = ip->protocol;
-    __u8 lfw_proto = 0;
+    __u8 lfw_proto = proto;
     __be16 src_port = 0;
     __be16 dst_port = 0;
     __u8 tcp_syn = 0, tcp_ack = 0, tcp_fin = 0, tcp_rst = 0;
 
     if (proto == IPPROTO_TCP) {
-        lfw_proto = 1;
         struct tcphdr *tcp = (void *)((__u8 *)ip + ip_hdr_len);
         if ((void *)(tcp + 1) > data_end)
             return TC_ACT_OK;
         src_port = tcp->source;
         dst_port = tcp->dest;
-        tcp_syn = tcp->syn;
-        tcp_ack = tcp->ack;
-        tcp_fin = tcp->fin;
-        tcp_rst = tcp->rst;
+        __u8 tcp_flags = ((__u8 *)tcp)[13];
+        tcp_syn = (tcp_flags & 0x02) != 0;
+        tcp_ack = (tcp_flags & 0x10) != 0;
+        tcp_fin = (tcp_flags & 0x01) != 0;
+        tcp_rst = (tcp_flags & 0x04) != 0;
     } else if (proto == IPPROTO_UDP) {
-        lfw_proto = 2;
         struct udphdr *udp = (void *)((__u8 *)ip + ip_hdr_len);
         if ((void *)(udp + 1) > data_end)
             return TC_ACT_OK;
         src_port = udp->source;
         dst_port = udp->dest;
-    } else if (proto == IPPROTO_ICMP) {
-        lfw_proto = 3;
     }
 
     // Conntrack
@@ -170,11 +167,11 @@ static __attribute__((noinline)) int do_ipv4_filter(struct __sk_buff *skb, struc
     }
     key.proto = lfw_proto;
 
-    if (lfw_proto == 1 || lfw_proto == 2) {
+    if (lfw_proto == IPPROTO_TCP || lfw_proto == IPPROTO_UDP) {
         struct conntrack_val *val = bpf_map_lookup_elem(&conntrack_map, &key);
         if (val) {
             __u64 timeout = UDP_TIMEOUT_NS;
-            if (lfw_proto == 1) { // TCP
+            if (lfw_proto == IPPROTO_TCP) { // TCP
                 if (val->state == LFW_TCP_STATE_SYN_SENT)
                     timeout = TCP_TIMEOUT_SYN_SENT_NS;
                 else if (val->state == LFW_TCP_STATE_SYN_RECV)
@@ -191,7 +188,7 @@ static __attribute__((noinline)) int do_ipv4_filter(struct __sk_buff *skb, struc
                 val->bytes    += pkt_len;
                 val->packets  += 1;
 
-                if (lfw_proto == 1) {
+                if (lfw_proto == IPPROTO_TCP) {
                     if (tcp_rst) {
                         val->state = LFW_TCP_STATE_CLOSED;
                     } else if (val->state == LFW_TCP_STATE_SYN_SENT && tcp_syn && tcp_ack) {
@@ -219,7 +216,7 @@ static __attribute__((noinline)) int do_ipv4_filter(struct __sk_buff *skb, struc
     }
 
     // Out-of-state checks
-    if (lfw_proto == 1 && !conntrack_found && !is_loopback_v4(src_ip)) {
+    if (lfw_proto == IPPROTO_TCP && !conntrack_found && !is_loopback_v4(src_ip)) {
         if (!tcp_syn || tcp_ack || tcp_rst || tcp_fin) {
             struct lfw_event *event = bpf_ringbuf_reserve(&events_ringbuf, sizeof(struct lfw_event), 0);
             if (event) {
@@ -285,7 +282,7 @@ static __attribute__((noinline)) int do_ipv4_filter(struct __sk_buff *skb, struc
                 __u8 version_match = (rule->ip_version == 0 || rule->ip_version == 4);
                 if (version_match && (rule->protocol == 0 || rule->protocol == lfw_proto)) {
                     __u8 port_match = 1;
-                    if (lfw_proto == 1 || lfw_proto == 2) {
+                    if (lfw_proto == IPPROTO_TCP || lfw_proto == IPPROTO_UDP) {
                         __u16 s_port = bpf_ntohs(src_port);
                         __u16 d_port = bpf_ntohs(dst_port);
                         if (rule->match_src_port) {
@@ -334,13 +331,13 @@ static __attribute__((noinline)) int do_ipv4_filter(struct __sk_buff *skb, struc
         }
     }
 
-    if (decision_action == 1 && (lfw_proto == 1 || lfw_proto == 2)) {
+    if (decision_action == 1 && (lfw_proto == IPPROTO_TCP || lfw_proto == IPPROTO_UDP)) {
         struct conntrack_val new_val = {
             .last_seen = now,
             .bytes     = pkt_len,
             .packets   = 1,
             .action    = 1,
-            .state     = (lfw_proto == 1) ? LFW_TCP_STATE_SYN_SENT : 0,
+            .state     = (lfw_proto == IPPROTO_TCP) ? LFW_TCP_STATE_SYN_SENT : 0,
         };
         bpf_map_update_elem(&conntrack_map, &key, &new_val, BPF_ANY);
     }
@@ -358,33 +355,33 @@ static __attribute__((noinline)) int do_ipv6_filter(struct __sk_buff *skb, struc
     const struct in6_addr *saddr = &ip6->saddr;
     const struct in6_addr *daddr = &ip6->daddr;
     __u8 proto = ip6->nexthdr;
-    __u8 lfw_proto = 0;
+    __u8 lfw_proto = proto;
     __be16 src_port = 0;
     __be16 dst_port = 0;
     __u8 tcp_syn = 0, tcp_ack = 0, tcp_fin = 0, tcp_rst = 0;
 
-    void *transport_hdr = (void *)(ip6 + 1);
-
-    if (proto == IPPROTO_TCP) {
-        lfw_proto = 1;
-        struct tcphdr *tcp = transport_hdr;
+    if (proto == 0 || proto == 43 || proto == 60 || proto == 44 || proto == 51) {
+        __u8 *ext = (void *)(ip6 + 1);
+        if ((void *)(ext + 1) > data_end)
+            return TC_ACT_OK;
+        lfw_proto = ext[0];
+    } else if (proto == IPPROTO_TCP) {
+        struct tcphdr *tcp = (void *)(ip6 + 1);
         if ((void *)(tcp + 1) > data_end)
             return TC_ACT_OK;
         src_port = tcp->source;
         dst_port = tcp->dest;
-        tcp_syn = tcp->syn;
-        tcp_ack = tcp->ack;
-        tcp_fin = tcp->fin;
-        tcp_rst = tcp->rst;
+        __u8 tcp_flags = ((__u8 *)tcp)[13];
+        tcp_syn = (tcp_flags & 0x02) != 0;
+        tcp_ack = (tcp_flags & 0x10) != 0;
+        tcp_fin = (tcp_flags & 0x01) != 0;
+        tcp_rst = (tcp_flags & 0x04) != 0;
     } else if (proto == IPPROTO_UDP) {
-        lfw_proto = 2;
-        struct udphdr *udp = transport_hdr;
+        struct udphdr *udp = (void *)(ip6 + 1);
         if ((void *)(udp + 1) > data_end)
             return TC_ACT_OK;
         src_port = udp->source;
         dst_port = udp->dest;
-    } else if (proto == IPPROTO_ICMPV6) {
-        lfw_proto = 3;
     }
 
     // Conntrack
@@ -407,11 +404,11 @@ static __attribute__((noinline)) int do_ipv6_filter(struct __sk_buff *skb, struc
     }
     key6.proto = lfw_proto;
 
-    if (lfw_proto == 1 || lfw_proto == 2) {
+    if (lfw_proto == IPPROTO_TCP || lfw_proto == IPPROTO_UDP) {
         struct conntrack_val *val = bpf_map_lookup_elem(&conntrack_map_v6, &key6);
         if (val) {
             __u64 timeout = UDP_TIMEOUT_NS;
-            if (lfw_proto == 1) { // TCP
+            if (lfw_proto == IPPROTO_TCP) { // TCP
                 if (val->state == LFW_TCP_STATE_SYN_SENT)
                     timeout = TCP_TIMEOUT_SYN_SENT_NS;
                 else if (val->state == LFW_TCP_STATE_SYN_RECV)
@@ -428,7 +425,7 @@ static __attribute__((noinline)) int do_ipv6_filter(struct __sk_buff *skb, struc
                 val->bytes    += pkt_len;
                 val->packets  += 1;
 
-                if (lfw_proto == 1) {
+                if (lfw_proto == IPPROTO_TCP) {
                     if (tcp_rst) {
                         val->state = LFW_TCP_STATE_CLOSED;
                     } else if (val->state == LFW_TCP_STATE_SYN_SENT && tcp_syn && tcp_ack) {
@@ -456,7 +453,7 @@ static __attribute__((noinline)) int do_ipv6_filter(struct __sk_buff *skb, struc
     }
 
     // Out-of-state checks
-    if (lfw_proto == 1 && !conntrack_found && !is_loopback_v6(saddr)) {
+    if (lfw_proto == IPPROTO_TCP && !conntrack_found && !is_loopback_v6(saddr)) {
         if (!tcp_syn || tcp_ack || tcp_rst || tcp_fin) {
             struct lfw_event *event = bpf_ringbuf_reserve(&events_ringbuf, sizeof(struct lfw_event), 0);
             if (event) {
@@ -483,11 +480,14 @@ static __attribute__((noinline)) int do_ipv6_filter(struct __sk_buff *skb, struc
         __builtin_memcpy(&lpm_key.ip, saddr, sizeof(struct in6_addr));
         struct rule_mask *src_mask = bpf_map_lookup_elem(&src_ip6_trie, &lpm_key);
         if (src_mask) {
+            bpf_printk("IPv6 src trie lookup SUCCEEDED");
             #pragma unroll
             for (int i = 0; i < 4; i++) {
                 intersected.bits[i] = src_mask->bits[i];
             }
             src_matched = 1;
+        } else {
+            bpf_printk("IPv6 src trie lookup FAILED");
         }
     }
     if (src_matched) {
@@ -495,11 +495,13 @@ static __attribute__((noinline)) int do_ipv6_filter(struct __sk_buff *skb, struc
         __builtin_memcpy(&lpm_key.ip, daddr, sizeof(struct in6_addr));
         struct rule_mask *dst_mask = bpf_map_lookup_elem(&dst_ip6_trie, &lpm_key);
         if (dst_mask) {
+            bpf_printk("IPv6 dst trie lookup SUCCEEDED");
             #pragma unroll
             for (int i = 0; i < 4; i++) {
                 intersected.bits[i] &= dst_mask->bits[i];
             }
         } else {
+            bpf_printk("IPv6 dst trie lookup FAILED");
             #pragma unroll
             for (int i = 0; i < 4; i++) {
                 intersected.bits[i] = 0;
@@ -521,10 +523,11 @@ static __attribute__((noinline)) int do_ipv6_filter(struct __sk_buff *skb, struc
 
             struct bpf_rule *rule = bpf_map_lookup_elem(&rules_details_map, &rule_idx);
             if (rule) {
+                bpf_printk("IPv6 rule check: idx=%u, ip_ver=%u, proto=%u, lfw_proto=%u", rule_idx, rule->ip_version, rule->protocol, lfw_proto);
                 __u8 version_match = (rule->ip_version == 0 || rule->ip_version == 6);
                 if (version_match && (rule->protocol == 0 || rule->protocol == lfw_proto)) {
                     __u8 port_match = 1;
-                    if (lfw_proto == 1 || lfw_proto == 2) {
+                    if (lfw_proto == IPPROTO_TCP || lfw_proto == IPPROTO_UDP) {
                         __u16 s_port = bpf_ntohs(src_port);
                         __u16 d_port = bpf_ntohs(dst_port);
                         if (rule->match_src_port) {
@@ -573,13 +576,13 @@ static __attribute__((noinline)) int do_ipv6_filter(struct __sk_buff *skb, struc
         }
     }
 
-    if (decision_action == 1 && (lfw_proto == 1 || lfw_proto == 2)) {
+    if (decision_action == 1 && (lfw_proto == IPPROTO_TCP || lfw_proto == IPPROTO_UDP)) {
         struct conntrack_val new_val = {
             .last_seen = now,
             .bytes     = pkt_len,
             .packets   = 1,
             .action    = 1,
-            .state     = (lfw_proto == 1) ? LFW_TCP_STATE_SYN_SENT : 0,
+            .state     = (lfw_proto == IPPROTO_TCP) ? LFW_TCP_STATE_SYN_SENT : 0,
         };
         bpf_map_update_elem(&conntrack_map_v6, &key6, &new_val, BPF_ANY);
     }

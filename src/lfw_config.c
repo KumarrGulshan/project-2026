@@ -180,6 +180,14 @@ static bool parse_port_proto(const char *text,
             *proto_inout = LFW_PROTO_UDP;
         else if (strcasecmp(slash, "icmp") == 0)
             *proto_inout = LFW_PROTO_ICMP;
+        else if (strcasecmp(slash, "igmp") == 0)
+            *proto_inout = LFW_PROTO_IGMP;
+        else if (strcasecmp(slash, "icmpv6") == 0)
+            *proto_inout = LFW_PROTO_ICMPV6;
+        else if (strcasecmp(slash, "esp") == 0)
+            *proto_inout = LFW_PROTO_ESP;
+        else if (strcasecmp(slash, "ah") == 0)
+            *proto_inout = LFW_PROTO_AH;
         else
             return false;
     }
@@ -280,6 +288,22 @@ static lfw_status_t parse_rule_line(char *line,
         }
         else if (strcasecmp(tok, "icmp") == 0) {
             rule.match.protocol = LFW_PROTO_ICMP;
+            tok = strtok(NULL, " \t\r\n");
+        }
+        else if (strcasecmp(tok, "igmp") == 0) {
+            rule.match.protocol = LFW_PROTO_IGMP;
+            tok = strtok(NULL, " \t\r\n");
+        }
+        else if (strcasecmp(tok, "icmpv6") == 0) {
+            rule.match.protocol = LFW_PROTO_ICMPV6;
+            tok = strtok(NULL, " \t\r\n");
+        }
+        else if (strcasecmp(tok, "esp") == 0) {
+            rule.match.protocol = LFW_PROTO_ESP;
+            tok = strtok(NULL, " \t\r\n");
+        }
+        else if (strcasecmp(tok, "ah") == 0) {
+            rule.match.protocol = LFW_PROTO_AH;
             tok = strtok(NULL, " \t\r\n");
         }
         else if (strcasecmp(tok, "any") == 0) {

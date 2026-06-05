@@ -62,13 +62,24 @@ static int handle_event(void *ctx, void *data, size_t data_sz) {
     inet_ntop(AF_INET6, &dst_in6, dst_ip_str, sizeof(dst_ip_str));
   }
 
-  const char *proto = "unknown";
-  if (event->proto == 1)
+  char proto_buf[16];
+  const char *proto = proto_buf;
+  if (event->proto == 6)
     proto = "tcp";
-  else if (event->proto == 2)
+  else if (event->proto == 17)
     proto = "udp";
-  else if (event->proto == 3)
+  else if (event->proto == 1)
     proto = "icmp";
+  else if (event->proto == 2)
+    proto = "igmp";
+  else if (event->proto == 58)
+    proto = "icmpv6";
+  else if (event->proto == 50)
+    proto = "esp";
+  else if (event->proto == 51)
+    proto = "ah";
+  else
+    snprintf(proto_buf, sizeof(proto_buf), "%u", event->proto);
 
   const char *action = (event->action == 1) ? "ALLOW" : "DROP";
 
@@ -149,7 +160,7 @@ static void *conntrack_gc_loop(void *arg) {
 
         if (bpf_map_lookup_elem(fd, &key, &val) == 0) {
           __u64 timeout = UDP_TIMEOUT_NS;
-          if (key.proto == 1) { // TCP
+          if (key.proto == IPPROTO_TCP) { // TCP
             if (val.state == LFW_TCP_STATE_SYN_SENT)
               timeout = TCP_TIMEOUT_SYN_SENT_NS;
             else if (val.state == LFW_TCP_STATE_SYN_RECV)
@@ -178,7 +189,7 @@ static void *conntrack_gc_loop(void *arg) {
 
         if (bpf_map_lookup_elem(fd_v6, &key, &val) == 0) {
           __u64 timeout = UDP_TIMEOUT_NS;
-          if (key.proto == 1) { // TCP
+          if (key.proto == IPPROTO_TCP) { // TCP
             if (val.state == LFW_TCP_STATE_SYN_SENT)
               timeout = TCP_TIMEOUT_SYN_SENT_NS;
             else if (val.state == LFW_TCP_STATE_SYN_RECV)
@@ -261,9 +272,9 @@ int main(int argc, char **argv) {
   }
 
   // 2. Initialize BPF subsystem
-  const char *bpf_obj_path = "/usr/local/share/lfw/lfw_bpf.o";
+  const char *bpf_obj_path = "build/lfw_bpf.o";
   if (access(bpf_obj_path, F_OK) != 0) {
-    bpf_obj_path = "build/lfw_bpf.o";
+    bpf_obj_path = "/usr/local/share/lfw/lfw_bpf.o";
   }
   st = lfw_bpf_init(ifname, bpf_obj_path);
   if (st != LFW_OK) {

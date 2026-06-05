@@ -122,6 +122,10 @@ static void format_rule(const lfw_rule_t *rule, char *buf, size_t buf_len)
     if (rule->match.protocol == LFW_PROTO_TCP) proto = "tcp";
     else if (rule->match.protocol == LFW_PROTO_UDP) proto = "udp";
     else if (rule->match.protocol == LFW_PROTO_ICMP) proto = "icmp";
+    else if (rule->match.protocol == LFW_PROTO_IGMP) proto = "igmp";
+    else if (rule->match.protocol == LFW_PROTO_ICMPV6) proto = "icmpv6";
+    else if (rule->match.protocol == LFW_PROTO_ESP) proto = "esp";
+    else if (rule->match.protocol == LFW_PROTO_AH) proto = "ah";
 
     if (rule->match.protocol != LFW_PROTO_ANY) {
         offset += snprintf(buf + offset, buf_len - offset, " %s", proto);

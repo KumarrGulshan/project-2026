@@ -108,7 +108,7 @@ ACTION [PROTO] [PORT] [from SRC] [to DST]
 ```
 
 - **ACTION**: `allow` | `deny` (or `drop`)
-- **PROTO**: `any` | `tcp` | `udp` | `icmp` (optional, default: any)
+- **PROTO**: `any` | `tcp` | `udp` | `icmp` | `igmp` | `icmpv6` | `esp` | `ah` (optional, default: any)
 - **PORT**: single port (e.g. `22`), port range (e.g. `67-68`), or `PORT/PROTO` (e.g. `53/udp`) (optional; matches destination port/range)
 - **SRC/DST**: `any`, IPv4 address (e.g. `192.168.1.10`), IPv6 address (e.g. `2001:db8::1`), IPv4 CIDR (e.g. `192.168.1.0/24`), or IPv6 CIDR (e.g. `2001:db8::/32`)
 
@@ -120,9 +120,17 @@ Lines starting with `#` or empty lines are ignored.
 # Deny by default
 default deny
 
+# Optional: Completely block an IP version (must be placed at the top)
+# deny from 0.0.0.0/0   # Completely block all IPv4 traffic
+# deny from ::/0        # Completely block all IPv6 traffic
+
 # Allow loopback interface traffic
-allow tcp from 127.0.0.1 to 127.0.0.1
+allow tcp from 127.0.0.0/8 to 127.0.0.0/8
+allow udp from 127.0.0.0/8 to 127.0.0.0/8
+allow icmp from 127.0.0.0/8 to 127.0.0.0/8
 allow tcp from ::1 to ::1
+allow udp from ::1 to ::1
+allow icmp from ::1 to ::1
 
 # Allow DHCPv4 and DHCPv6 client ports
 allow udp 67-68
@@ -137,8 +145,13 @@ allow udp 53 to 8.8.8.8
 # Allow HTTP from a local IPv6 subnet
 allow tcp 80 from 2001:db8::/32
 
-# Allow ICMP (Ping)
+# Allow ICMP & ICMPv6 (Ping & Neighbor Discovery)
 allow icmp
+allow icmpv6
+
+# Allow IPsec VPN traffic
+allow esp
+allow ah
 ```
 
 Place your rules into `/etc/lfw/lfw.rules` (or another file you pass on the command line).
@@ -224,8 +237,10 @@ sudo systemctl status lfw@eth0
 * **Rules Map**: A BPF Array Map (`rules_details_map`) populated by the userspace daemon containing up to 256 compiled rules.
 * **Config Map**: A BPF Array Map (`config_map`) storing runtime configuration parameters (e.g., default action and rule count).
 * **Trie Maps**: LPM (Longest Prefix Match) Trie maps (`src_ip_trie`, `dst_ip_trie`, `src_ip6_trie`, `dst_ip6_trie`) populated by the userspace daemon for high-performance bitwise subnet/CIDR matching.
+* **Transitive Nested Subnets Rule Mask Merging**: Because eBPF LPM trie lookups only return the most specific matching prefix, rules configured for larger enclosing subnets or "any" IP would normally be bypassed. The userspace daemon solves this by dynamically propagating (OR'ing) rule bitmasks from parent subnets down to their nested child subnets during synchronization, ensuring accurate rule evaluation in $O(\log N)$ in-kernel lookups.
+* **eBPF Ring Buffer Telemetry**: A high-performance BPF Ring Buffer map (`events_ringbuf`) used to stream real-time packet verdicts (ALLOW, DROP) and header metadata from the kernel filter directly to userspace.
 * **Background Housekeeper**: A userspace thread that periodically sweeps `conntrack_map` and `conntrack_map_v6` in the kernel and deletes expired connections using state-specific timeouts (e.g. shorter timeouts for unfinished TCP handshakes).
-* **Config Loader**: Parses text-based rules files in userspace and synchronizes compiled rule structures and policies to the BPF maps.
+* **Config Loader**: Parses text-based rules files in userspace, executes transitive rule mask merging, and synchronizes compiled rule structures, policies, and tries to the BPF maps.
 
 
 ## 7. Quick start (TL;DR)

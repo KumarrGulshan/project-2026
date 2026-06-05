@@ -21,10 +21,15 @@ typedef enum {
 // L4 protocol
 typedef enum {
     LFW_PROTO_ANY = 0,
-    LFW_PROTO_TCP,
-    LFW_PROTO_UDP,
-    LFW_PROTO_ICMP
+    LFW_PROTO_ICMP = 1,
+    LFW_PROTO_IGMP = 2,
+    LFW_PROTO_TCP = 6,
+    LFW_PROTO_UDP = 17,
+    LFW_PROTO_ESP = 50,
+    LFW_PROTO_AH = 51,
+    LFW_PROTO_ICMPV6 = 58
 } lfw_proto_t;
+
 
 // IPv4 address (network byte order)
 typedef struct {

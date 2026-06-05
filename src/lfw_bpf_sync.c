@@ -183,9 +183,7 @@ lfw_status_t lfw_bpf_sync_rules(const lfw_rule_t *rules, lfw_u32 rule_count, lfw
 
             b_rule.match_src_ip = rule->match.match_src_ip ? 1 : 0;
             b_rule.match_dst_ip = rule->match.match_dst_ip ? 1 : 0;
-            b_rule.protocol = (rule->match.protocol == LFW_PROTO_TCP) ? 1 :
-                              (rule->match.protocol == LFW_PROTO_UDP) ? 2 :
-                              (rule->match.protocol == LFW_PROTO_ICMP) ? 3 : 0;
+            b_rule.protocol = rule->match.protocol;
             b_rule.match_src_port = rule->match.match_src_port ? 1 : 0;
             b_rule.match_dst_port = rule->match.match_dst_port ? 1 : 0;
             b_rule.action = (rule->action == LFW_ACTION_ACCEPT) ? 1 : 2;
@@ -521,9 +519,13 @@ static void format_rule(const struct bpf_rule *rule, char *buf, size_t buf_len)
                        rule->action == 1 ? "allow" : "deny");
 
     const char *proto = "any";
-    if (rule->protocol == 1) proto = "tcp";
-    else if (rule->protocol == 2) proto = "udp";
-    else if (rule->protocol == 3) proto = "icmp";
+    if (rule->protocol == LFW_PROTO_TCP) proto = "tcp";
+    else if (rule->protocol == LFW_PROTO_UDP) proto = "udp";
+    else if (rule->protocol == LFW_PROTO_ICMP) proto = "icmp";
+    else if (rule->protocol == LFW_PROTO_IGMP) proto = "igmp";
+    else if (rule->protocol == LFW_PROTO_ICMPV6) proto = "icmpv6";
+    else if (rule->protocol == LFW_PROTO_ESP) proto = "esp";
+    else if (rule->protocol == LFW_PROTO_AH) proto = "ah";
 
     if (rule->protocol != 0) {
         offset += snprintf(buf + offset, buf_len - offset, " %s", proto);
@@ -640,6 +642,78 @@ void lfw_bpf_dump_stats(const lfw_rule_t *orig_rules, lfw_u32 orig_rule_count, l
             format_rule(&b_rule, rule_str, sizeof(rule_str));
             lfw_log_info("  Rule #%u [%s]: hits=%lu, bytes=%lu",
                          i + 1, rule_str, (unsigned long)b_rule.hit_count, (unsigned long)b_rule.byte_count);
+        }
+    }
+
+    // Dump LPM Tries
+    int src_trie_fd = lfw_bpf_get_src_ip_trie_fd();
+    int dst_trie_fd = lfw_bpf_get_dst_ip_trie_fd();
+    int src_trie6_fd = lfw_bpf_get_src_ip6_trie_fd();
+    int dst_trie6_fd = lfw_bpf_get_dst_ip6_trie_fd();
+
+    if (src_trie_fd >= 0) {
+        lfw_log_info("=== src_ip_trie ===");
+        struct lpm_key k = {}, nk = {};
+        struct rule_mask m = {};
+        int r = bpf_map_get_next_key(src_trie_fd, NULL, &nk);
+        while (r == 0) {
+            k = nk;
+            if (bpf_map_lookup_elem(src_trie_fd, &k, &m) == 0) {
+                char ip_str[64];
+                struct in_addr in = {.s_addr = k.ip};
+                inet_ntop(AF_INET, &in, ip_str, sizeof(ip_str));
+                lfw_log_info("  prefixlen=%u, ip=%s -> mask bits: %llu %llu", k.prefixlen, ip_str, m.bits[0], m.bits[1]);
+            }
+            r = bpf_map_get_next_key(src_trie_fd, &k, &nk);
+        }
+    }
+
+    if (dst_trie_fd >= 0) {
+        lfw_log_info("=== dst_ip_trie ===");
+        struct lpm_key k = {}, nk = {};
+        struct rule_mask m = {};
+        int r = bpf_map_get_next_key(dst_trie_fd, NULL, &nk);
+        while (r == 0) {
+            k = nk;
+            if (bpf_map_lookup_elem(dst_trie_fd, &k, &m) == 0) {
+                char ip_str[64];
+                struct in_addr in = {.s_addr = k.ip};
+                inet_ntop(AF_INET, &in, ip_str, sizeof(ip_str));
+                lfw_log_info("  prefixlen=%u, ip=%s -> mask bits: %llu %llu", k.prefixlen, ip_str, m.bits[0], m.bits[1]);
+            }
+            r = bpf_map_get_next_key(dst_trie_fd, &k, &nk);
+        }
+    }
+
+    if (src_trie6_fd >= 0) {
+        lfw_log_info("=== src_ip6_trie ===");
+        struct lpm6_key k = {}, nk = {};
+        struct rule_mask m = {};
+        int r = bpf_map_get_next_key(src_trie6_fd, NULL, &nk);
+        while (r == 0) {
+            k = nk;
+            if (bpf_map_lookup_elem(src_trie6_fd, &k, &m) == 0) {
+                char ip_str[64];
+                inet_ntop(AF_INET6, &k.ip, ip_str, sizeof(ip_str));
+                lfw_log_info("  prefixlen=%u, ip=%s -> mask bits: %llu %llu", k.prefixlen, ip_str, m.bits[0], m.bits[1]);
+            }
+            r = bpf_map_get_next_key(src_trie6_fd, &k, &nk);
+        }
+    }
+
+    if (dst_trie6_fd >= 0) {
+        lfw_log_info("=== dst_ip6_trie ===");
+        struct lpm6_key k = {}, nk = {};
+        struct rule_mask m = {};
+        int r = bpf_map_get_next_key(dst_trie6_fd, NULL, &nk);
+        while (r == 0) {
+            k = nk;
+            if (bpf_map_lookup_elem(dst_trie6_fd, &k, &m) == 0) {
+                char ip_str[64];
+                inet_ntop(AF_INET6, &k.ip, ip_str, sizeof(ip_str));
+                lfw_log_info("  prefixlen=%u, ip=%s -> mask bits: %llu %llu", k.prefixlen, ip_str, m.bits[0], m.bits[1]);
+            }
+            r = bpf_map_get_next_key(dst_trie6_fd, &k, &nk);
         }
     }
 
