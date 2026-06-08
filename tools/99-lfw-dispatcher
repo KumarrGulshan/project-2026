@@ -1,0 +1,22 @@
+#!/bin/bash
+
+INTERFACE=$1
+ACTION=$2
+
+# Ensure we have both arguments
+if [ -z "$INTERFACE" ] || [ -z "$ACTION" ]; then
+    exit 0
+fi
+
+# Only manage interfaces that have a corresponding file in /etc/lfw/interfaces.enabled/
+if [ -f "/etc/lfw/interfaces.enabled/${INTERFACE}" ]; then
+    case "$ACTION" in
+        up)
+            # Restart to ensure a clean state and recreate BPF/TC attachment after MAC randomization
+            systemctl restart "lfw@${INTERFACE}"
+            ;;
+        down)
+            systemctl stop "lfw@${INTERFACE}"
+            ;;
+    esac
+fi

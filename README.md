@@ -21,7 +21,7 @@
 
 ## 2. Requirements
 
-To build and run `lfw`, you need the following:
+To build and run `lfw`, the following requirements must be met:
 
 * **Linux** kernel supporting eBPF and Traffic Control (TC) clsact.
 * **GCC** with C11 support.
@@ -70,18 +70,19 @@ make test
 
 ### Running Offline PCAP Tests
 
-You can run the rule engine offline against a pcap or pcapng packet capture file to verify verdicts without attaching to live interfaces:
+The rule engine can be run offline against a pcap or pcapng packet capture file to verify verdicts without attaching to live network interfaces.
 
+First, build the pcap test utility:
 ```bash
-# Build the pcap test utility
 make pcap-test
+```
 
-# Run the tester with the sample pcapng file in the repo root
+Then run the tester with the sample pcapng file:
+```bash
 ./build/lfw_pcap_test wireshark_packet_capture.pcapng lfw.rules
 ```
 
 To clean build artifacts:
-
 ```bash
 make clean
 ```
@@ -93,7 +94,7 @@ By default, `lfw` reads rules from:
 
 - `/etc/lfw/lfw.rules`
 
-You can also pass a custom rules file path as the second CLI argument after the interface:
+A custom rules file path can also be passed as the second CLI argument after the interface:
 
 ```bash
 sudo build/lfw <interface> /path/to/custom.rules
@@ -154,14 +155,14 @@ allow esp
 allow ah
 ```
 
-Place your rules into `/etc/lfw/lfw.rules` (or another file you pass on the command line).
+Place rules into `/etc/lfw/lfw.rules` (or another file specified on the command line).
 
 
-## 5. Running the firewall
+## 5. Running the Firewall
 
-### 5.1 Prepare the rules file
+### 5.1 Prepare the Rules File
 
-Create the directory and copy your rules:
+Create the directory and copy the rules:
 
 ```bash
 sudo mkdir -p /etc/lfw
@@ -185,46 +186,72 @@ For example, to run on the loopback (`lo`) interface or ethernet (`eth0`):
 sudo build/lfw lo
 ```
 
-If you want to use a custom rules file:
+To use a custom rules file:
 
 ```bash
 sudo build/lfw <interface> /path/to/custom.rules
 ```
 
-### 5.3 Syslog logs and signals
+### 5.3 System Logs & Signals
 
-Operational events and logs are sent to the system logger (`syslog`). You can view them using:
-
+Operational events and logs are sent to the system logger (`syslog`). Real-time log events can be viewed using syslog:
 ```bash
 tail -f /var/log/syslog | grep lfw
-# or using journalctl
+```
+
+Or by querying the systemd journal logs:
+```bash
 journalctl -t lfw -f
 ```
 
-The daemon supports operational control signals:
+The daemon also supports operational control signals:
 
 - **Reload Config**: Reload the rules configuration file dynamically without restarting:
   ```bash
   sudo kill -HUP $(pgrep lfw)
   ```
-- **Dump Statistics**: Output active connections table size, rule hit counts, and byte counters:
+- **Dump Statistics**: Output active connections table size, rule hit counts, and byte counters to syslog:
   ```bash
   sudo kill -USR1 $(pgrep lfw)
   ```
 
-## 5.4 Systemd Integration
+## 5.4 Systemd & NetworkManager Integration
 
-For integration with the host system, you can use the systemd template service unit (installed globally via `sudo make install`) to manage the firewall on a specific network interface (e.g., `eth0`):
+For automatic integration with the host network configuration, `lfw` uses systemd template service units coupled with a NetworkManager dispatcher script (installed globally via `sudo make install`).
 
+### Automatic Activation
+During `sudo make install`, the installer automatically discovers all physical network interfaces on the host (e.g., `eth0`, `wlan0`) and flags them as enabled by touching files in `/etc/lfw/interfaces.enabled/`.
+
+### NetworkManager Dispatcher
+A dispatcher script is placed at `/etc/NetworkManager/dispatcher.d/99-lfw-dispatcher`. Whenever an interface goes up or down, NetworkManager invokes this dispatcher which:
+- Automatically starts or restarts `lfw@<interface>` when the link comes up (crucial to recreate eBPF/TC attachments after events like MAC address randomization).
+- Automatically stops `lfw@<interface>` when the interface link goes down.
+
+To enable automatic firewall startup on `eth0`:
 ```bash
-sudo systemctl enable lfw@eth0 --now
+sudo touch /etc/lfw/interfaces.enabled/eth0
 ```
 
-This starts the daemon and configures it to run automatically on boot. To check status:
-
+To disable automatic firewall startup on `eth0`:
 ```bash
-sudo systemctl status lfw@eth0
+sudo rm -f /etc/lfw/interfaces.enabled/eth0
 ```
+
+### Manual Control
+The firewall daemon can also be manually managed on a specific interface using standard systemd commands:
+
+- **Start** the firewall on `eth0`:
+  ```bash
+  sudo systemctl start lfw@eth0
+  ```
+- **Stop** the firewall on `eth0`:
+  ```bash
+  sudo systemctl stop lfw@eth0
+  ```
+- **Check running status** for `eth0`:
+  ```bash
+  sudo systemctl status lfw@eth0
+  ```
 
 
 ## 6. Internal Architecture
@@ -243,23 +270,36 @@ sudo systemctl status lfw@eth0
 * **Config Loader**: Parses text-based rules files in userspace, executes transitive rule mask merging, and synchronizes compiled rule structures, policies, and tries to the BPF maps.
 
 
-## 7. Quick start (TL;DR)
+## 7. Quick Start (TL;DR)
 
+### 1. Install Dependencies (Debian/Ubuntu)
 ```bash
-# 1) Install dependencies (Debian/Ubuntu)
 sudo apt install -y build-essential clang llvm libbpf-dev libpcap-dev
-
-# 2) Clone the repo & navigate to the folder
-git clone https://github.com/saurabh-857/lfw.git
-cd lfw
-
-# 3) Build & Install system-wide
-make
-sudo make install
-
-# 4) Enable and start the firewall on your network interface (e.g. wlan0 or eth0)
-sudo systemctl enable lfw@wlan0 --now
 ```
 
-After this, incoming and outgoing packets on the specified interface will be filtered according to `/etc/lfw/lfw.rules`.
+### 2. Clone & Navigate to the Folder
+```bash
+git clone https://github.com/saurabh-857/lfw.git
+cd lfw
+```
+
+### 3. Build & Install System-wide
+```bash
+make
+sudo make install
+```
+
+### 4. Verify Firewall Status
+The firewall is automatically enabled on all physical interfaces upon installation. The running status can be checked on a specific interface (e.g., `wlan0`):
+```bash
+sudo systemctl status lfw@wlan0
+```
+
+After this, incoming and outgoing packets on the enabled interfaces will be filtered according to `/etc/lfw/lfw.rules`.
+
+
+## 8. License
+
+This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details.
+
 

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-only
+
 #include "lfw_bpf.h"
 #include "lfw_log.h"
 #include <bpf/libbpf.h>
@@ -308,6 +310,11 @@ lfw_status_t lfw_bpf_reload(const char *ifname, const char *bpf_obj_path,
     err = bpf_tc_attach(&g_hook_egress, &new_opts_egress);
     if (err) {
         lfw_log_error("Reload: Failed to replace egress filter: %s", strerror(-err));
+        // Rollback ingress filter to previous configuration
+        int rollback_err = bpf_tc_attach(&g_hook_ingress, &g_opts_ingress);
+        if (rollback_err) {
+            lfw_log_error("Reload: Fatal - failed to rollback ingress filter: %s", strerror(-rollback_err));
+        }
         bpf_object__close(new_obj);
         return LFW_ERR_GENERIC;
     }

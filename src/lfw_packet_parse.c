@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-only
+
 #include "lfw_packet_parse.h"
 
 #define IPV4_MIN_HEADER_LEN 20

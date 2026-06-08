@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-only
+
 #define __KERNEL__
 #include <linux/bpf.h>
 #include <linux/pkt_cls.h>
@@ -391,29 +393,60 @@ static __attribute__((noinline)) int do_ipv6_filter(struct __sk_buff *skb, struc
 
     if (proto == 0 || proto == 43 || proto == 60 || proto == 44 || proto == 51) {
         __u8 *ext = (void *)(ip6 + 1);
-        if ((void *)(ext + 1) > data_end)
+        if ((void *)(ext + 2) > data_end)
             return TC_ACT_OK;
         lfw_proto = ext[0];
-    } else if (proto == IPPROTO_TCP) {
-        struct tcphdr *tcp = (void *)(ip6 + 1);
-        if ((void *)(tcp + 1) > data_end)
-            return TC_ACT_OK;
-        src_port = tcp->source;
-        dst_port = tcp->dest;
-        __u8 tcp_flags = ((__u8 *)tcp)[13];
-        tcp_syn = (tcp_flags & 0x02) != 0;
-        tcp_ack = (tcp_flags & 0x10) != 0;
-        tcp_fin = (tcp_flags & 0x01) != 0;
-        tcp_rst = (tcp_flags & 0x04) != 0;
-    } else if (proto == IPPROTO_UDP) {
-        struct udphdr *udp = (void *)(ip6 + 1);
-        if ((void *)(udp + 1) > data_end)
-            return TC_ACT_OK;
-        src_port = udp->source;
-        dst_port = udp->dest;
-    }
 
-    // Conntrack
+        __u32 ext_len = 8;
+        if (proto == 0 || proto == 43 || proto == 60) {
+            ext_len = (ext[1] + 1) * 8;
+        } else if (proto == 51) {
+            ext_len = (ext[1] + 2) * 4;
+        }
+
+        if ((void *)(ext + ext_len) > data_end)
+            return TC_ACT_OK;
+
+        if (ext_len == 8) {
+            if (lfw_proto == IPPROTO_TCP) {
+                struct tcphdr *tcp = (void *)((__u8 *)ip6 + 48);
+                if ((void *)(tcp + 1) > data_end)
+                    return TC_ACT_OK;
+                src_port = tcp->source;
+                dst_port = tcp->dest;
+                __u8 tcp_flags = ((__u8 *)tcp)[13];
+                tcp_syn = (tcp_flags & 0x02) != 0;
+                tcp_ack = (tcp_flags & 0x10) != 0;
+                tcp_fin = (tcp_flags & 0x01) != 0;
+                tcp_rst = (tcp_flags & 0x04) != 0;
+            } else if (lfw_proto == IPPROTO_UDP) {
+                struct udphdr *udp = (void *)((__u8 *)ip6 + 48);
+                if ((void *)(udp + 1) > data_end)
+                    return TC_ACT_OK;
+                src_port = udp->source;
+                dst_port = udp->dest;
+            }
+        }
+    } else {
+        if (proto == IPPROTO_TCP) {
+            struct tcphdr *tcp = (void *)(ip6 + 1);
+            if ((void *)(tcp + 1) > data_end)
+                return TC_ACT_OK;
+            src_port = tcp->source;
+            dst_port = tcp->dest;
+            __u8 tcp_flags = ((__u8 *)tcp)[13];
+            tcp_syn = (tcp_flags & 0x02) != 0;
+            tcp_ack = (tcp_flags & 0x10) != 0;
+            tcp_fin = (tcp_flags & 0x01) != 0;
+            tcp_rst = (tcp_flags & 0x04) != 0;
+        } else if (proto == IPPROTO_UDP) {
+            struct udphdr *udp = (void *)(ip6 + 1);
+            if ((void *)(udp + 1) > data_end)
+                return TC_ACT_OK;
+            src_port = udp->source;
+            dst_port = udp->dest;
+        }
+    }    // Conntrack
     __u8 conntrack_found = 0;
     __u64 now = bpf_ktime_get_ns();
     __u64 pkt_len = skb->len;
@@ -529,14 +562,11 @@ static __attribute__((noinline)) int do_ipv6_filter(struct __sk_buff *skb, struc
         __builtin_memcpy(&lpm_key.ip, saddr, sizeof(struct in6_addr));
         struct rule_mask *src_mask = bpf_map_lookup_elem(&src_ip6_trie, &lpm_key);
         if (src_mask) {
-            bpf_printk("IPv6 src trie lookup SUCCEEDED");
             #pragma unroll
             for (int i = 0; i < 4; i++) {
                 intersected.bits[i] = src_mask->bits[i];
             }
             src_matched = 1;
-        } else {
-            bpf_printk("IPv6 src trie lookup FAILED");
         }
     }
     if (src_matched) {
@@ -544,13 +574,11 @@ static __attribute__((noinline)) int do_ipv6_filter(struct __sk_buff *skb, struc
         __builtin_memcpy(&lpm_key.ip, daddr, sizeof(struct in6_addr));
         struct rule_mask *dst_mask = bpf_map_lookup_elem(&dst_ip6_trie, &lpm_key);
         if (dst_mask) {
-            bpf_printk("IPv6 dst trie lookup SUCCEEDED");
             #pragma unroll
             for (int i = 0; i < 4; i++) {
                 intersected.bits[i] &= dst_mask->bits[i];
             }
         } else {
-            bpf_printk("IPv6 dst trie lookup FAILED");
             #pragma unroll
             for (int i = 0; i < 4; i++) {
                 intersected.bits[i] = 0;
@@ -572,7 +600,6 @@ static __attribute__((noinline)) int do_ipv6_filter(struct __sk_buff *skb, struc
 
             struct bpf_rule *rule = bpf_map_lookup_elem(&rules_details_map, &rule_idx);
             if (rule) {
-                bpf_printk("IPv6 rule check: idx=%u, ip_ver=%u, proto=%u, lfw_proto=%u", rule_idx, rule->ip_version, rule->protocol, lfw_proto);
                 __u8 version_match = (rule->ip_version == 0 || rule->ip_version == 6);
                 if (version_match && (rule->protocol == 0 || rule->protocol == lfw_proto)) {
                     __u8 port_match = 1;

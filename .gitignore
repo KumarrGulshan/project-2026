@@ -3,6 +3,7 @@ build/
 
 # Temporary and scratchpad files
 scratch/
+tmp/
 
 # Packet captures
 *.pcap

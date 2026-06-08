@@ -94,10 +94,24 @@ $(TESTBIN): scratch/test_lfw.c $(SRC_CORE) | $(BUILD)
 install: lfw bpf
 	mkdir -p /usr/local/share/lfw
 	mkdir -p /etc/lfw
+	mkdir -p /etc/lfw/interfaces.enabled
 	cp $(LFWBIN) /usr/local/bin/lfw
 	cp $(BPF_OBJ) /usr/local/share/lfw/lfw_bpf.o
-	cp lfw.rules /etc/lfw/lfw.rules
+	if [ ! -f /etc/lfw/lfw.rules ]; then cp lfw.rules /etc/lfw/lfw.rules; fi
 	cp lfw@.service /etc/systemd/system/lfw@.service
+	if [ -d /etc/NetworkManager/dispatcher.d ]; then \
+		cp tools/99-lfw-dispatcher /etc/NetworkManager/dispatcher.d/99-lfw-dispatcher; \
+		chmod +x /etc/NetworkManager/dispatcher.d/99-lfw-dispatcher; \
+		chown root:root /etc/NetworkManager/dispatcher.d/99-lfw-dispatcher; \
+	fi
+	# Automatically enable firewall for all physical network interfaces
+	for dev in /sys/class/net/*; do \
+		if [ -d "$$dev/device" ]; then \
+			iface=$$(basename "$$dev"); \
+			touch /etc/lfw/interfaces.enabled/$$iface; \
+			echo "[lfw] Automatically enabled firewall on physical interface: $$iface"; \
+		fi; \
+	done
 	systemctl daemon-reload
 	@echo "[lfw] Installed system-wide successfully!"
 

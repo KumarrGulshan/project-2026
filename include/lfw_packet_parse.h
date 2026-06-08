@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-only
+
 #ifndef LFW_PACKET_PARSE_H
 #define LFW_PACKET_PARSE_H
 

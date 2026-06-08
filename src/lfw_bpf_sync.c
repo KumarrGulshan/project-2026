@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-only
+
 #include "lfw_bpf.h"
 #include "lfw_bpf_shared.h"
 #include "lfw_log.h"

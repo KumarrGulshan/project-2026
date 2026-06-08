@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-only
+
 #ifndef LFW_TYPES_H
 #define LFW_TYPES_H
 
