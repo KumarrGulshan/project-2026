@@ -23,6 +23,7 @@
 #define TCP_TIMEOUT_SYN_RECV_NS (20ULL * 1000000000ULL)
 #define TCP_TIMEOUT_FIN_WAIT_NS (30ULL * 1000000000ULL)
 #define TCP_TIMEOUT_ESTABLISHED_NS (300ULL * 1000000000ULL)
+#define TCP_TIMEOUT_CLOSED_NS (10ULL * 1000000000ULL)
 #define UDP_TIMEOUT_NS (60ULL * 1000000000ULL)
 
 static volatile sig_atomic_t g_running = 1;
@@ -40,12 +41,39 @@ static bool g_gc_running = false;
 static pthread_t g_telemetry_thread;
 static bool g_telemetry_running = false;
 
+static volatile int64_t g_clock_offset = 0;
+static volatile bool g_clock_offset_initialized = false;
+
 static int handle_event(void *ctx, void *data, size_t data_sz) {
   (void)ctx;
   if (data_sz < sizeof(struct lfw_event))
     return 0;
 
+  // Telemetry rate limiting (max 100 log messages per second to avoid syslog bottleneck)
+  static __u64 last_log_time = 0;
+  static __u32 log_count_this_sec = 0;
+  struct timespec ts;
+  if (clock_gettime(CLOCK_BOOTTIME, &ts) == 0) {
+    __u64 now = (__u64)ts.tv_sec;
+    if (now != last_log_time) {
+      last_log_time = now;
+      log_count_this_sec = 0;
+    }
+    if (log_count_this_sec >= 100) {
+      return 0; // Skip logging to prevent CPU starvation
+    }
+    log_count_this_sec++;
+  }
+
   struct lfw_event *event = (struct lfw_event *)data;
+
+  // Calibrate clock offset between userspace CLOCK_MONOTONIC and kernel bpf_ktime_get_ns()
+  struct timespec offset_ts;
+  if (clock_gettime(CLOCK_MONOTONIC, &offset_ts) == 0) {
+    int64_t userspace_now = (int64_t)offset_ts.tv_sec * 1000000000LL + offset_ts.tv_nsec;
+    g_clock_offset = userspace_now - (int64_t)event->timestamp;
+    g_clock_offset_initialized = true;
+  }
 
   char src_ip_str[64];
   char dst_ip_str[64];
@@ -141,14 +169,21 @@ static void *conntrack_gc_loop(void *arg) {
     if (!g_running)
       break;
 
+    if (!g_clock_offset_initialized) {
+      continue; // Wait until telemetry calibrates the clock offset
+    }
+    int64_t offset = g_clock_offset;
+
     struct timespec ts;
-    __u64 now = 0;
+    __u64 now_u = 0;
 
     if (clock_gettime(CLOCK_MONOTONIC, &ts) == 0) {
-      now = (__u64)ts.tv_sec * 1000000000ULL + ts.tv_nsec;
+      now_u = (__u64)ts.tv_sec * 1000000000ULL + ts.tv_nsec;
     } else {
       continue;
     }
+
+    int64_t adjusted_now = (int64_t)now_u - offset;
 
     // IPv4 GC
     int fd = lfw_bpf_get_conntrack_map_fd();
@@ -169,10 +204,12 @@ static void *conntrack_gc_loop(void *arg) {
               timeout = TCP_TIMEOUT_SYN_RECV_NS;
             else if (val.state == LFW_TCP_STATE_FIN_WAIT)
               timeout = TCP_TIMEOUT_FIN_WAIT_NS;
+            else if (val.state == LFW_TCP_STATE_CLOSED)
+              timeout = TCP_TIMEOUT_CLOSED_NS;
             else
               timeout = TCP_TIMEOUT_ESTABLISHED_NS;
           }
-          if (now - val.last_seen > timeout) {
+          if (adjusted_now > (int64_t)val.last_seen && adjusted_now - (int64_t)val.last_seen > (int64_t)timeout) {
             bpf_map_delete_elem(fd, &key);
           }
         }
@@ -198,10 +235,12 @@ static void *conntrack_gc_loop(void *arg) {
               timeout = TCP_TIMEOUT_SYN_RECV_NS;
             else if (val.state == LFW_TCP_STATE_FIN_WAIT)
               timeout = TCP_TIMEOUT_FIN_WAIT_NS;
+            else if (val.state == LFW_TCP_STATE_CLOSED)
+              timeout = TCP_TIMEOUT_CLOSED_NS;
             else
               timeout = TCP_TIMEOUT_ESTABLISHED_NS;
           }
-          if (now - val.last_seen > timeout) {
+          if (adjusted_now > (int64_t)val.last_seen && adjusted_now - (int64_t)val.last_seen > (int64_t)timeout) {
             bpf_map_delete_elem(fd_v6, &key);
           }
         }

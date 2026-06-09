@@ -8,7 +8,7 @@
 #include <unistd.h>
 
 // Table size (must be power of two for better distribution)
-#define LFW_STATE_TABLE_SIZE 4096
+#define LFW_STATE_TABLE_SIZE 65536
 
 // Timeouts (seconds)
 #define LFW_TCP_TIMEOUT 300
@@ -125,6 +125,9 @@ static bool entry_equal(const lfw_conn_entry_t *a,
 
 static bool entry_expired(const lfw_conn_entry_t *e, lfw_u64 now)
 {
+    if (now <= e->last_seen)
+        return false;
+
     if (e->protocol == LFW_PROTO_TCP)
         return (now - e->last_seen) > LFW_TCP_TIMEOUT;
 

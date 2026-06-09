@@ -103,16 +103,26 @@ install: lfw bpf
 		cp tools/99-lfw-dispatcher /etc/NetworkManager/dispatcher.d/99-lfw-dispatcher; \
 		chmod +x /etc/NetworkManager/dispatcher.d/99-lfw-dispatcher; \
 		chown root:root /etc/NetworkManager/dispatcher.d/99-lfw-dispatcher; \
+		mkdir -p /etc/NetworkManager/dispatcher.d/pre-up.d; \
+		ln -sf ../99-lfw-dispatcher /etc/NetworkManager/dispatcher.d/pre-up.d/99-lfw-dispatcher; \
 	fi
-	# Automatically enable firewall for all physical network interfaces
+	systemctl daemon-reload
+	rm -f /etc/lfw/interfaces.enabled/*
+	# Automatically enable firewall for active network interfaces and loopback
 	for dev in /sys/class/net/*; do \
-		if [ -d "$$dev/device" ]; then \
+		if [ -d "$$dev/device" ] || [ "$$(basename "$$dev")" = "lo" ]; then \
 			iface=$$(basename "$$dev"); \
-			touch /etc/lfw/interfaces.enabled/$$iface; \
-			echo "[lfw] Automatically enabled firewall on physical interface: $$iface"; \
+			if [ -f "$$dev/carrier" ] && [ "$$(cat "$$dev/carrier" 2>/dev/null)" = "1" ]; then \
+				touch /etc/lfw/interfaces.enabled/$$iface; \
+				echo "[lfw] Automatically enabled firewall on active interface: $$iface"; \
+				systemctl enable "lfw@$$iface"; \
+				systemctl restart "lfw@$$iface"; \
+			else \
+				systemctl disable "lfw@$$iface" >/dev/null 2>&1 || true; \
+				systemctl stop "lfw@$$iface" >/dev/null 2>&1 || true; \
+			fi; \
 		fi; \
 	done
-	systemctl daemon-reload
 	@echo "[lfw] Installed system-wide successfully!"
 
 

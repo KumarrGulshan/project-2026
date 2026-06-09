@@ -58,8 +58,9 @@ allow tcp 53 to any
 # DNS over TLS (DoT - TCP Port 853)
 allow tcp 853 to any
 
-# Secure Web Traffic (HTTPS - TCP Port 443)
+# Secure Web Traffic (HTTPS - TCP & UDP Port 443 for HTTP/3 QUIC)
 allow tcp 443 to any
+allow udp 443 to any
 
 # Insecure Web Traffic (HTTP - TCP Port 80)
 allow tcp 80 to any

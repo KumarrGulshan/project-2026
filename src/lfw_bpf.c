@@ -24,7 +24,7 @@
 // Map declarations (IPv4)
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(max_entries, 4096);
+    __uint(max_entries, 65536);
     __type(key, struct conntrack_key);
     __type(value, struct conntrack_val);
     __uint(pinning, LIBBPF_PIN_BY_NAME);
@@ -49,7 +49,7 @@ struct {
 // Map declarations (IPv6)
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(max_entries, 4096);
+    __uint(max_entries, 65536);
     __type(key, struct conntrack_key_v6);
     __type(value, struct conntrack_val);
     __uint(pinning, LIBBPF_PIN_BY_NAME);
@@ -187,7 +187,7 @@ static __attribute__((noinline)) int do_ipv4_filter(struct __sk_buff *skb, struc
                     timeout = TCP_TIMEOUT_ESTABLISHED_NS;
             }
 
-            if (now - val->last_seen <= timeout) {
+            if (now <= val->last_seen || now - val->last_seen <= timeout) {
                 conntrack_found = 1;
                 val->last_seen = now;
                 val->bytes    += pkt_len;
@@ -228,9 +228,6 @@ static __attribute__((noinline)) int do_ipv4_filter(struct __sk_buff *skb, struc
                 }
 
                 __u32 act = val->action;
-                if (val->state == LFW_TCP_STATE_CLOSED) {
-                    bpf_map_delete_elem(&conntrack_map, &key);
-                }
 
                 if (act == 1) return TC_ACT_OK;
                 else return TC_ACT_SHOT;
@@ -481,7 +478,7 @@ static __attribute__((noinline)) int do_ipv6_filter(struct __sk_buff *skb, struc
                     timeout = TCP_TIMEOUT_ESTABLISHED_NS;
             }
 
-            if (now - val->last_seen <= timeout) {
+            if (now <= val->last_seen || now - val->last_seen <= timeout) {
                 conntrack_found = 1;
                 val->last_seen = now;
                 val->bytes    += pkt_len;
@@ -522,9 +519,6 @@ static __attribute__((noinline)) int do_ipv6_filter(struct __sk_buff *skb, struc
                 }
 
                 __u32 act = val->action;
-                if (val->state == LFW_TCP_STATE_CLOSED) {
-                    bpf_map_delete_elem(&conntrack_map_v6, &key6);
-                }
 
                 if (act == 1) return TC_ACT_OK;
                 else return TC_ACT_SHOT;
